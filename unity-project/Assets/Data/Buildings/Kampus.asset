@@ -1,0 +1,28 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: cc3b558105a554aa72e834b209a87b25, type: 3}
+  m_Name: Kampus
+  m_EditorClassIdentifier: 
+  id: kampus
+  nama: Kampus Kecil
+  deskripsi: Kampus kecil 3x3. Terbuka di Level 5 (Kota). Membuka warga bergaji tinggi, pemasukan tiap hari dan kebahagiaan +6.
+  kategori: 2
+  levelBuka: 5
+  ukuran: {x: 3, y: 3}
+  biayaBangun: 10000000
+  pemasukanHarian: 80000
+  biayaPerawatanHarian: 20000
+  kapasitasWarga: 0
+  bonusBahagia: 6
+  sprite: {fileID: 21300000, guid: 6ae707029e64820b0fb58a84a8390162, type: 3}
+  warna: {r: 1, g: 1, b: 1, a: 1}
+  offsetVisualY: 0.4

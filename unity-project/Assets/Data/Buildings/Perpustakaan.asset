@@ -1,0 +1,28 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: cc3b558105a554aa72e834b209a87b25, type: 3}
+  m_Name: Perpustakaan
+  m_EditorClassIdentifier: 
+  id: perpustakaan
+  nama: Perpustakaan
+  deskripsi: Ruang baca warga. Terbuka di Level 2 (Dusun). Menambah kebahagiaan +2.
+  kategori: 2
+  levelBuka: 2
+  ukuran: {x: 1, y: 1}
+  biayaBangun: 800000
+  pemasukanHarian: 0
+  biayaPerawatanHarian: 2000
+  kapasitasWarga: 0
+  bonusBahagia: 2
+  sprite: {fileID: 21300000, guid: db06c8c07bf586d922f362206b151809, type: 3}
+  warna: {r: 1, g: 1, b: 1, a: 1}
+  offsetVisualY: 0.4

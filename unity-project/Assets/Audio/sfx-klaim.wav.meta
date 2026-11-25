@@ -1,0 +1,21 @@
+fileFormatVersion: 2
+guid: 6e5fc19ccb2679af457cfc8c4286ac29
+AudioImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences: []
+  audioData:
+    serializedVersion: 6
+    loadType: 1
+    channels: 1
+    frequency: 44100
+    format: 0
+    threeD: 0
+    useHardware: 0
+    stream: 0
+    sampleRateOverride: 0
+  usePreloadAudio: 0
+  preloadAudioData: 1
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 

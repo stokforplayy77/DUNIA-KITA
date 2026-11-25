@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.db
+*.sqlite3
+
+# Unity
+unity-project/[Ll]ibrary/
+unity-project/[Tt]emp/
+unity-project/[Oo]bj/
+unity-project/[Bb]uild/
+unity-project/[Bb]uilds/
+unity-project/[Ll]ogs/
+unity-project/[Uu]ser[Ss]ettings/
+unity-project/.vscode/
+*.csproj
+*.unityproj
+*.sln
+*.suo
+*.tmp
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+*.pidb.meta
+*.apk
+*.aab
+*.unitypackage

@@ -1,0 +1,28 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: cc3b558105a554aa72e834b209a87b25, type: 3}
+  m_Name: BalaiKota
+  m_EditorClassIdentifier: 
+  id: balaikota
+  nama: Balai Kota
+  deskripsi: Kantor wali kota 2x2, landmark desa. Terbuka di Level 3 (Desa). Kebahagiaan +5 dan reputasi +2 tiap hari. Hanya 1 per dunia.
+  kategori: 2
+  levelBuka: 3
+  ukuran: {x: 2, y: 2}
+  biayaBangun: 3000000
+  pemasukanHarian: 0
+  biayaPerawatanHarian: 5000
+  kapasitasWarga: 0
+  bonusBahagia: 5
+  sprite: {fileID: 21300000, guid: 502fece9070be8630926e7f3e0570751, type: 3}
+  warna: {r: 1, g: 1, b: 1, a: 1}
+  offsetVisualY: 0.4

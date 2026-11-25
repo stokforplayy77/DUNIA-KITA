@@ -1,0 +1,28 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: cc3b558105a554aa72e834b209a87b25, type: 3}
+  m_Name: Taman
+  m_EditorClassIdentifier: 
+  id: taman
+  nama: Taman
+  deskripsi: Ruang hijau yang membuat warga lebih bahagia (+2 kebahagiaan tiap taman).
+  kategori: 2
+  levelBuka: 1
+  ukuran: {x: 1, y: 1}
+  biayaBangun: 250000
+  pemasukanHarian: 0
+  biayaPerawatanHarian: 500
+  kapasitasWarga: 0
+  bonusBahagia: 0
+  sprite: {fileID: 21300000, guid: 603017d58677e8d57f0f50cababe3d06, type: 3}
+  warna: {r: 1, g: 1, b: 1, a: 1}
+  offsetVisualY: 0.5
