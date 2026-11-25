@@ -65,6 +65,9 @@ public class PejalanKaki : MonoBehaviour
         }
         spriteRenderer.sprite = sprite;
         spriteRenderer.sortingOrder = 8;
+        // Warga lebih kecil dari bangunan (sprite 256px @ PPU 100 = 2,56
+        // unit — sama tinggi rumah 1 lantai). Skala 0,42 -> ±1 unit.
+        transform.localScale = new Vector3(0.42f, 0.42f, 1f);
         transform.position = posisiAwal;
         if (grid != null && grid.mode3D)
         {

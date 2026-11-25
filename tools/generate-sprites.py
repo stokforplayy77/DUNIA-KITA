@@ -188,32 +188,123 @@ simpan(img, "highlight.png")
 # bayangan tanah, genteng, cerobong, jendela berbingkai, gagang pintu.
 
 # ---- rumah sederhana ----
-img, d = baru()
-bayangan(d, 128, 172, 88, 13)
-# dinding kiri (terang) & kanan (teduh), naik 56px
-poli(d, [(48, 128), (128, 168), (128, 112), (48, 72)], KREM)
-poli(d, [(208, 128), (128, 168), (128, 112), (208, 72)], KREM_GELAP)
-# fondasi batu di bawah dinding
-poli(d, [(48, 128), (128, 168), (128, 158), (48, 118)], (200, 200, 195, 255),
-     garis=OL_HALUS, lebar=2)
-poli(d, [(208, 128), (128, 168), (128, 158), (208, 118)], (180, 180, 175, 255),
-     garis=OL_HALUS, lebar=2)
-# atap piramida (puncak y=24) + genteng
-poli(d, [(48, 72), (128, 112), (128, 24)], MERAH_ATAP_GELAP)
-poli(d, [(208, 72), (128, 112), (128, 24)], MERAH_ATAP)
-garis_genteng(d, (128, 24), (48, 72), (208, 72))
-# cerobong di sisi kanan atap
-cerobong(d, 168, 44)
-# pintu (kiri) + jendela berbingkai (kanan) + kotak bunga
-pintu_iso(d, 76, 116, 104, 156)
-jendela_iso(d, 152, 118, 180, 144)
-# kotak bunga di bawah jendela
-poli(d, [(152, 144), (180, 130), (180, 138), (152, 152)], (122, 74, 43, 255),
-     garis=OL, lebar=2)
-for (x, y) in [(158, 138), (166, 134), (174, 131)]:
-    d.ellipse([x - 3, y - 3, x + 3, y + 3], fill=(255, 143, 179, 255),
-              outline=OL, width=1)
-simpan(img, "rumah.png")
+def rumah_detail():
+    """Rumah gaya pixel-art iso detail (referensi Townian): digambar di
+    kanvas 4x lalu diturunkan ke 256 agar ukuran dunia tetap sama."""
+    Z = 4
+    cv = Image.new("RGBA", (256 * Z, 256 * Z), (0, 0, 0, 0))
+    d = ImageDraw.Draw(cv, "RGBA")
+    Zp = lambda x, y: (x * Z, y * Z)
+
+    # -- bayangan tanah lembut --
+    d.ellipse([Zp(28, 120), Zp(228, 190)], fill=(0, 0, 0, 60))
+    d.ellipse([Zp(48, 132), Zp(208, 184)], fill=(0, 0, 0, 50))
+
+    # -- geometri: footprint 160x80, pusat (128,148) --
+    L, R, B, T = (48, 148), (208, 148), (128, 188), (128, 108)
+    hw = 52             # tinggi dinding (koordinat dasar 256)
+    up = lambda p, dy: (p[0], p[1] - dy)
+
+    # -- dinding (kiri terang, kanan teduh) dengan siding --
+    KIRI, KANAN = (247, 240, 224, 255), (231, 218, 196, 255)
+    d.polygon([Zp(*L), Zp(*B), Zp(*up(B, hw)), Zp(*up(L, hw))], fill=KIRI)
+    d.polygon([Zp(*R), Zp(*B), Zp(*up(B, hw)), Zp(*up(R, hw))], fill=KANAN)
+    # garis siding horizontal
+    for i in range(1, 5):
+        t = i / 5.0
+        dy = hw * t
+        d.line([Zp(L[0], L[1] - dy), Zp(B[0], B[1] - dy)],
+               fill=(224, 212, 190, 255), width=Z)
+        d.line([Zp(R[0], R[1] - dy), Zp(B[0], B[1] - dy)],
+               fill=(206, 192, 168, 255), width=Z)
+
+    # -- fondasi batu --
+    d.polygon([Zp(*L), Zp(*B), Zp(B[0], B[1] + 10 * Z), Zp(L[0], L[1] + 10 * Z)],
+              fill=(168, 164, 158, 255))
+    d.polygon([Zp(*R), Zp(*B), Zp(B[0], B[1] + 10 * Z), Zp(R[0], R[1] + 10 * Z)],
+              fill=(148, 144, 140, 255))
+    d.line([Zp(L[0], L[1] + 10 * Z), Zp(B[0], B[1] + 10 * Z), Zp(R[0], R[1] + 10 * Z)],
+           fill=OL, width=Z)
+
+    # -- atap gable: bubungan memanjang kiri-atas -> kanan-atas,
+    # dua bidang mengalir ke depan (L-B-R) --
+    e1 = up(L, hw)          # tepi kiri atas
+    e2 = up(R, hw)          # tepi kanan atas
+    g1 = (128, 26)          # ujung bubungan kiri (belakang)
+    g2 = (128, 116)         # ujung bubungan kanan (depan, di atas B)
+    # bidang atap kiri & kanan
+    d.polygon([Zp(*e1), Zp(*g1), Zp(*g2), Zp(*up(B, hw + 10))],
+              fill=(196, 88, 52, 255))
+    d.polygon([Zp(*e2), Zp(*g1), Zp(*g2), Zp(*up(B, hw + 10))],
+              fill=(160, 66, 40, 255))
+    # barisan genteng sejajar bubungan (dua sisi)
+    for i in range(1, 5):
+        t = i / 5.0
+        ax = e1[0] + (up(B, hw + 10)[0] - e1[0]) * t
+        ay = e1[1] + (up(B, hw + 10)[1] - e1[1]) * t
+        gx = g1[0] + (g2[0] - g1[0]) * t
+        gy = g1[1] + (g2[1] - g1[1]) * t
+        d.line([Zp(ax, ay), Zp(gx, gy)], fill=(150, 60, 34, 255), width=Z)
+        bx = e2[0] + (up(B, hw + 10)[0] - e2[0]) * t
+        by = e2[1] + (up(B, hw + 10)[1] - e2[1]) * t
+        d.line([Zp(bx, by), Zp(gx, gy)], fill=(120, 50, 30, 255), width=Z)
+    # bubungan + outline
+    d.line([Zp(*g1), Zp(*g2)], fill=OL, width=3 * Z)
+    d.line([Zp(*e1), Zp(*up(B, hw + 10)), Zp(*e2)], fill=OL, width=2 * Z)
+    d.line([Zp(*e1), Zp(*g1)], fill=OL, width=2 * Z)
+    d.line([Zp(*e2), Zp(*g1)], fill=OL, width=2 * Z)
+
+    # -- cerobong bata di kanan atap + asap --
+    d.rectangle([Zp(172, 28), Zp(192, 62)], fill=(178, 92, 66, 255),
+                outline=OL, width=Z)
+    d.rectangle([Zp(170, 24), Zp(194, 32)], fill=(146, 70, 50, 255),
+                outline=OL, width=Z)
+    d.ellipse([Zp(176, 12), Zp(188, 24)], fill=(226, 226, 226, 190))
+    d.ellipse([Zp(186, 2), Zp(200, 16)], fill=(226, 226, 226, 140))
+
+    # -- fasad depan kiri: pintu kayu + jendela shutter --
+    # pintu
+    dp = [(70, 118), (104, 135), (104, 172), (70, 155)]
+    d.polygon([Zp(*p) for p in dp], fill=(122, 74, 43, 255))
+    d.line([Zp(*p) for p in dp] + [Zp(*dp[0])], fill=OL, width=Z)
+    d.ellipse([Zp(97, 141), Zp(102, 146)], fill=EMAS)
+    # jendela dengan shutter
+    jw = [(132, 116), (168, 134), (168, 166), (132, 148)]
+    d.polygon([Zp(*p) for p in jw], fill=(240, 234, 218, 255))
+    d.line([Zp(*p) for p in jw] + [Zp(*jw[0])], fill=OL, width=Z)
+    kaca = [(136, 120), (164, 134), (164, 160), (136, 146)]
+    d.polygon([Zp(*p) for p in kaca], fill=KACA)
+    d.line([Zp(136, 133), Zp(164, 147)], fill=KAYU_GELAP, width=Z)
+    d.line([Zp(150, 127), Zp(150, 153)], fill=KAYU_GELAP, width=Z)
+    d.line([Zp(139, 124), Zp(150, 119)], fill=KACA_TERANG, width=2 * Z)
+    # kotak bunga di bawah jendela
+    d.polygon([Zp(132, 166), Zp(168, 148), Zp(168, 158), Zp(132, 176)],
+              fill=(122, 74, 43, 255))
+    for (bx, by) in [(140, 158), (150, 153), (160, 148)]:
+        d.ellipse([Zp(bx - 4, by - 4), Zp(bx + 4, by + 4)],
+                  fill=(255, 143, 179, 255), outline=OL, width=Z)
+
+    # -- fasad depan kanan: dua jendela kecil --
+    for (x0, y0) in [(160, 158), (188, 144)]:
+        pts = [(x0, y0), (x0 + 22, y0 + 11), (x0 + 22, y0 + 27),
+               (x0, y0 + 16)]
+        d.polygon([Zp(*p) for p in pts], fill=KACA)
+        d.line([Zp(*p) for p in pts] + [Zp(*pts[0])], fill=OL, width=Z)
+
+    # -- semak & bunga di sekitar pintu --
+    for (sx, sy, r) in [(52, 162, 12), (64, 170, 14), (116, 178, 12)]:
+        d.ellipse([Zp(sx - r, sy - r), Zp(sx + r, sy + r)],
+                  fill=(92, 168, 74, 255), outline=(60, 120, 52, 255), width=Z)
+        d.ellipse([Zp(sx - r + 4, sy - r + 3), Zp(sx, sy + 2)],
+                  fill=(118, 192, 92, 255))
+    for (fx, fy) in [(46, 156), (76, 174), (110, 184)]:
+        d.ellipse([Zp(fx - 3, fy - 3), Zp(fx + 3, fy + 3)],
+                  fill=(255, 190, 92, 255), outline=OL, width=Z)
+
+    simpan(cv.resize((256, 256), Image.Resampling.LANCZOS), "rumah.png")
+
+
+rumah_detail()
 
 # ---- warung ----
 img, d = baru()
