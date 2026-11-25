@@ -835,62 +835,291 @@ def font_label(ukuran):
         return ImageFont.load_default()
 
 
+def _mask_segitiga(size, poly):
+    m = Image.new("L", size, 0)
+    ImageDraw.Draw(m).polygon(poly, fill=255)
+    return m
+
+
+def _tempel_gradien(img, poly, warna_atas, warna_bawah):
+    """Isi poligon dengan gradien vertikal lembut (atas -> bawah)."""
+    mask = _mask_segitiga(img.size, poly)
+    bbox = mask.getbbox()
+    if bbox is None:
+        return
+    grad = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    gd = ImageDraw.Draw(grad)
+    y0, y1 = bbox[1], bbox[3]
+    for y in range(y0, y1 + 1):
+        t = (y - y0) / max(1, y1 - y0)
+        c = tuple(int(a + (b - a) * t) for a, b in zip(warna_atas, warna_bawah))
+        gd.line([(0, y), (img.size[0], y)], fill=c)
+    img.paste(grad, (0, 0), mask)
+    return mask
+
+
+def _tempel_pola(img, mask, gambar_pola):
+    """Gambar pola di lapisan terpisah lalu di-clip ke mask ruangan."""
+    lapisan = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    gambar_pola(ImageDraw.Draw(lapisan))
+    lapisan.putalpha(Image.composite(lapisan.split()[3], Image.new("L", img.size, 0), mask))
+    img.alpha_composite(lapisan)
+
+
 def denah_interior(nama, w, h, cx, cy, rx, ry):
-    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    atas = (cx, cy - ry)
-    kanan = (cx + rx, cy)
-    bawah = (cx, cy + ry)
-    kiri = (cx - rx, cy)
-    tengah = (cx, cy)
-    # 4 ruangan (segitiga) + pola lantai masing-masing
-    d.polygon([atas, kanan, tengah], fill=(238, 222, 190, 255))   # kamar tidur
-    d.polygon([kanan, bawah, tengah], fill=(200, 220, 230, 255))  # dapur
-    d.polygon([bawah, kiri, tengah], fill=(222, 192, 150, 255))   # ruang tamu
-    d.polygon([kiri, atas, tengah], fill=(180, 212, 226, 255))    # kamar mandi
-    # karpet oval di kamar tidur (segitiga atas) — di BAWAH label
-    # supaya teks "KAMAR" tidak tertutup karpet.
-    d.ellipse([cx - rx // 4, cy - ry // 2 + 8, cx + rx // 4,
-               cy - ry // 2 + 24], fill=(255, 143, 179, 255), outline=OL, width=2)
-    # ubin dapur (segitiga kanan): garis silang kecil
-    d.line([(cx + rx // 4, cy - ry // 4), (cx + rx // 4, cy + ry // 4)],
-           fill=(150, 180, 200, 255), width=2)
-    d.line([(cx + rx // 8, cy), (cx + rx // 2, cy)], fill=(150, 180, 200, 255),
-           width=2)
-    # papan kayu ruang tamu (segitiga bawah): garis sejajar
-    for i in range(1, 4):
-        t = i / 4.0
-        x0 = cx - rx * t // 2
-        x1 = cx + rx * t // 2
-        y = cy + ry * t // 2
-        d.line([(x0, y), (x1, y)], fill=(190, 150, 100, 255), width=2)
-    # ubin kamar mandi (segitiga kiri)
-    d.line([(cx - rx // 4, cy - ry // 4), (cx - rx // 4, cy + ry // 4)],
-           fill=(140, 180, 200, 255), width=2)
-    d.line([(cx - rx // 2, cy), (cx - rx // 8, cy)], fill=(140, 180, 200, 255),
-           width=2)
-    # dinding dalam (salib) + dinding luar tebal
-    garis = max(3, w // 128)
-    d.line([atas, bawah], fill=KAYU_GELAP, width=garis)
-    d.line([kiri, kanan], fill=KAYU_GELAP, width=garis)
-    d.line([atas, kanan, bawah, kiri, atas], fill=(90, 55, 25, 255),
-           width=garis + 1)
-    # label ruangan — MANDI/DAPUR digeser ke atas supaya teks tidak
-    # tertimpa garis salib horizontal di y=cy.
-    f = font_label(max(11, w // 20))
-    for (teks, px, py) in [("KAMAR", cx, cy - ry / 2),
-                           ("DAPUR", cx + rx / 2, cy - 16),
-                           ("TAMU", cx, cy + ry / 2),
-                           ("MANDI", cx - rx / 2, cy - 16)]:
+    """Denah 4 ruangan bergaya kartun: digambar di kanvas 2x lalu
+    di-downsample LANCZOS (tepi halus), lantai gradien per ruangan,
+    pola lantai (karpet, ubin, papan kayu) yang rapi di dalam ruangan,
+    band dinding kayu dengan bayangan, dan label dalam pil putih."""
+    S = 2
+    img = Image.new("RGBA", (w * S, h * S), (0, 0, 0, 0))
+    X = lambda v: int(v * S)
+    atas = (X(cx), X(cy - ry))
+    kanan = (X(cx + rx), X(cy))
+    bawah = (X(cx), X(cy + ry))
+    kiri = (X(cx - rx), X(cy))
+    tengah = (X(cx), X(cy))
+    luar = [atas, kanan, bawah, kiri]
+
+    def ke_tengah(p, f):
+        return (int(tengah[0] + (p[0] - tengah[0]) * f),
+                int(tengah[1] + (p[1] - tengah[1]) * f))
+
+    d = ImageDraw.Draw(img, "RGBA")
+
+    # bayangan tanah lembut di bawah denah
+    d.polygon([(p[0], p[1] + 10 * S) for p in luar], fill=(0, 0, 0, 60))
+    # band dinding kayu luar (ruangan digambar lebih kecil ke arah tengah)
+    d.polygon(luar, fill=(146, 104, 62, 255), outline=OL, width=3 * S)
+
+    f_inset = 0.93
+    a2, k2, b2, l2, t2 = (ke_tengah(p, f_inset) for p in (atas, kanan, bawah, kiri, tengah))
+
+    ruangan = [
+        ([a2, k2, t2], (255, 233, 214), (247, 202, 184)),   # kamar tidur
+        ([k2, b2, t2], (223, 243, 226), (193, 227, 199)),   # dapur
+        ([b2, l2, t2], (251, 233, 199), (231, 205, 162)),   # ruang tamu
+        ([l2, a2, t2], (216, 240, 248), (183, 218, 233)),   # kamar mandi
+    ]
+    mask_ruangan = []
+    for poly, c_atas, c_bawah in ruangan:
+        mask_ruangan.append(_tempel_gradien(img, poly, c_atas, c_bawah))
+
+    # -- pola lantai per ruangan (di-clip ke segitiga masing-masing) --
+    # kamar tidur: karpet bulat lembut + bintik krem
+    mask_kamar = mask_ruangan[0]
+    def pola_kamar(pd):
+        pd.ellipse([t2[0] - rx * S // 3, a2[1] + ry * S // 6,
+                    t2[0] + rx * S // 3, a2[1] + ry * S // 2],
+                   fill=(255, 176, 198, 255), outline=(214, 120, 148, 255),
+                   width=2 * S)
+        pd.ellipse([t2[0] - rx * S // 5, a2[1] + ry * S // 3,
+                    t2[0] + rx * S // 5, a2[1] + ry * S // 2 - 6 * S],
+                   fill=(255, 205, 220, 255))
+    _tempel_pola(img, mask_kamar, pola_kamar)
+
+    # dapur: ubin diagonal halus
+    def pola_dapur(pd):
+        langkah = 16 * S
+        x0, x1 = k2[0] - rx * S, k2[0]
+        for i in range(-4, 10):
+            off = i * langkah
+            pd.line([(x0 + off, b2[1]), (x0 + off + h * S, b2[1] - h * S)],
+                    fill=(255, 255, 255, 70), width=S)
+            pd.line([(x0 + off, b2[1] - h * S), (x0 + off + h * S, b2[1])],
+                    fill=(255, 255, 255, 70), width=S)
+    _tempel_pola(img, mask_ruangan[1], pola_dapur)
+
+    # ruang tamu: papan kayu horizontal
+    def pola_tamu(pd):
+        langkah = 14 * S
+        for y in range(b2[1] - int(ry * S), b2[1] + 1, langkah):
+            pd.line([(0, y), (img.size[0], y)], fill=(178, 138, 92, 110), width=S)
+    _tempel_pola(img, mask_ruangan[2], pola_tamu)
+
+    # kamar mandi: kotak ubin kecil
+    def pola_mandi(pd):
+        langkah = 18 * S
+        for x in range(l2[0], a2[0] + 1, langkah):
+            pd.line([(x, 0), (x, img.size[1])], fill=(255, 255, 255, 80), width=S)
+        for y in range(a2[1], b2[1] + 1, langkah):
+            pd.line([(0, y), (img.size[0], y)], fill=(255, 255, 255, 80), width=S)
+    _tempel_pola(img, mask_ruangan[3], pola_mandi)
+
+    # -- dinding --
+    garis = max(3, w // 110) * S
+    # sambungan dinding dalam: titik bulat di persimpangan tengah
+    d.ellipse([t2[0] - garis, t2[1] - garis, t2[0] + garis, t2[1] + garis],
+              fill=KAYU_GELAP)
+    d.line([a2, b2], fill=KAYU_GELAP, width=garis)
+    d.line([l2, k2], fill=KAYU_GELAP, width=garis)
+    # garis highlight dinding dalam (sisi terang)
+    d.line([a2, k2, b2, l2, a2], fill=(196, 152, 104, 255), width=S)
+    # outline luar tegas
+    d.line(luar + [luar[0]], fill=OL, width=3 * S)
+
+    # -- label ruangan dalam pil putih semi-transparan --
+    f = font_label(max(12, w // 22) * S)
+    for (teks, px, py) in [("KAMAR", X(cx), X(cy - ry / 2)),
+                           ("DAPUR", X(cx + rx / 2), X(cy - 14)),
+                           ("TAMU", X(cx), X(cy + ry / 2)),
+                           ("MANDI", X(cx - rx / 2), X(cy - 14))]:
         lebar = d.textlength(teks, font=f)
-        d.text((px - lebar / 2, py - 6), teks, font=f, fill=(47, 59, 44, 255))
-    simpan(img, nama)
+        tinggi = f.size if hasattr(f, "size") else w // 22
+        pad = 5 * S
+        kotak = [px - lebar / 2 - pad, py - pad - 2 * S,
+                 px + lebar / 2 + pad, py + tinggi + pad]
+        d.rounded_rectangle(kotak, radius=tinggi, fill=(255, 255, 255, 215),
+                            outline=OL_HALUS, width=S)
+        d.text((px - lebar / 2, py - 2 * S), teks, font=f, fill=(74, 62, 52, 255))
+
+    simpan2x(img, nama, w, h)
 
 
 denah_interior("interior-rumah.png", 256, 256, 128, 128, 100, 50)
 denah_interior("interior-kost.png", 512, 256, 256, 128, 200, 100)
 denah_interior("interior-apartemen.png", 512, 256, 256, 128, 200, 100)
 denah_interior("interior-perumahan.png", 768, 384, 384, 192, 300, 150)
+
+
+# ================= INTERIOR CUTAWAY (gaya dollhouse) =================
+# Bangunan tetap berdiri: dinding depan dibuka rendah, dinding belakang
+# + atap terangkat, di dalamnya terlihat 4 ruangan berlantai warna dengan
+# pola masing-masing (mirip referensi cutaway).
+
+def cutaway_interior(nama, w, h, cx, cy, rx, ry):
+    S = 2
+    img = Image.new("RGBA", (w * S, h * S), (0, 0, 0, 0))
+    X = lambda v: int(v * S)
+    L = (X(cx - rx), X(cy))            # sudut kiri
+    R = (X(cx + rx), X(cy))            # sudut kanan
+    T = (X(cx), X(cy - ry))            # sudut belakang (atas)
+    B = (X(cx), X(cy + ry))            # sudut depan (bawah)
+    C = (X(cx), X(cy))                 # tengah lantai
+    lantai = [T, R, B, L]
+
+    hw = int(ry * S * 0.9)             # tinggi dinding belakang
+    fw = int(ry * S * 0.30) + 2 * S    # tinggi dinding depan rendah
+    gap = int(ry * S * 0.25)           # celah angkat atap
+    hr = int(ry * S * 0.9)             # tinggi atap (puncak)
+    up = lambda p, dy: (p[0], p[1] - dy)
+
+    d = ImageDraw.Draw(img, "RGBA")
+
+    # -- bayangan tanah --
+    d.ellipse([X(cx - rx) + 10 * S, X(cy) - ry * S // 5,
+               X(cx + rx) - 10 * S, X(cy) + ry * S // 5 + 10 * S],
+              fill=(0, 0, 0, 55))
+
+    # -- lantai 4 ruangan (sedikit diinset ke tengah agar dinding rapi) --
+    def ketengah(p, f):
+        return (C[0] + int((p[0] - C[0]) * f), C[1] + int((p[1] - C[1]) * f))
+
+    ins = 0.94
+    Li, Ri, Ti, Bi, Ci = (ketengah(p, ins) for p in (L, R, T, B, C))
+    ruangan = [
+        ([Ti, Ri, Ci], (255, 233, 214), (247, 202, 184)),   # kamar tidur
+        ([Ri, Bi, Ci], (223, 243, 226), (193, 227, 199)),   # dapur
+        ([Bi, Li, Ci], (251, 233, 199), (231, 205, 162)),   # ruang tamu
+        ([Li, Ti, Ci], (216, 240, 248), (183, 218, 233)),   # kamar mandi
+    ]
+    mask_r = []
+    for poly, ca, cb in ruangan:
+        mask_r.append(_tempel_gradien(img, poly, ca, cb))
+
+    # -- pola lantai ringkas per ruangan --
+    def pola_kamar(pd):
+        pd.ellipse([Ci[0] - rx * S // 3, Ti[1] + (Ci[1] - Ti[1]) // 2 - 8 * S,
+                    Ci[0] + rx * S // 3, Ci[1] - 4 * S],
+                   fill=(255, 176, 198, 255), outline=(214, 120, 148, 255),
+                   width=2 * S)
+    _tempel_pola(img, mask_r[0], pola_kamar)
+
+    def pola_dapur(pd):
+        langkah = 18 * S
+        for i in range(-4, 12):
+            off = i * langkah
+            pd.line([(Li[0] + off, B[1]), (Li[0] + off + h * S, B[1] - h * S)],
+                    fill=(255, 255, 255, 70), width=S)
+    _tempel_pola(img, mask_r[1], pola_dapur)
+
+    def pola_tamu(pd):
+        for y in range(Bi[1], Ci[1] - 2 * S, 14 * S):
+            pd.line([(0, y), (img.size[0], y)], fill=(178, 138, 92, 100), width=S)
+    _tempel_pola(img, mask_r[2], pola_tamu)
+
+    def pola_mandi(pd):
+        for x in range(Li[0], Ci[0] + 1, 18 * S):
+            pd.line([(x, 0), (x, img.size[1])], fill=(255, 255, 255, 80), width=S)
+        for y in range(Ti[1], Ci[1] + 1, 18 * S):
+            pd.line([(0, y), (img.size[0], y)], fill=(255, 255, 255, 80), width=S)
+    _tempel_pola(img, mask_r[3], pola_mandi)
+
+    # -- dinding belakang: naik dari dua sisi atas belah ketupat --
+    dinding_kiri = [L, T, up(T, hw), up(L, hw)]
+    dinding_kanan = [T, R, up(R, hw), up(T, hw)]
+    d.polygon(dinding_kiri, fill=(247, 226, 196, 255))
+    d.polygon(dinding_kanan, fill=(238, 210, 172, 255))
+    # wallpaper: garis garis vertikal halus di dinding
+    for i in range(1, 12):
+        t = i / 12.0
+        x0 = int(L[0] + (T[0] - L[0]) * t)
+        yb = int(L[1] + (T[1] - L[1]) * t)
+        d.line([(x0, yb - 2 * S), (x0, yb - hw + 2 * S)],
+               fill=(224, 196, 158, 255), width=S)
+        x1 = int(T[0] + (R[0] - T[0]) * t)
+        yb1 = int(T[1] + (R[1] - T[1]) * t)
+        d.line([(x1, yb1 - 2 * S), (x1, yb1 - hw + 2 * S)],
+               fill=(216, 186, 146, 255), width=S)
+    # garis skirting bawah dinding
+    d.line([L, T], fill=KAYU_GELAP, width=3 * S)
+    d.line([T, R], fill=KAYU_GELAP, width=3 * S)
+    d.line([up(L, hw), up(T, hw)], fill=OL_HALUS, width=S)
+    d.line([up(T, hw), up(R, hw)], fill=OL_HALUS, width=S)
+    # outline dinding
+    d.line(dinding_kiri + [dinding_kiri[0]], fill=OL, width=2 * S)
+    d.line(dinding_kanan + [dinding_kanan[0]], fill=OL, width=2 * S)
+
+    # -- dinding depan rendah (bangunan "dibuka"): dua sisi bawah --
+    depan_kiri = [L, B, up(B, fw), up(L, fw)]
+    depan_kanan = [B, R, up(R, fw), up(B, fw)]
+    d.polygon(depan_kiri, fill=(255, 236, 204, 255))
+    d.polygon(depan_kanan, fill=(244, 220, 182, 255))
+    d.line(depan_kiri + [depan_kiri[0]], fill=OL, width=2 * S)
+    d.line(depan_kanan + [depan_kanan[0]], fill=OL, width=2 * S)
+
+    # -- sekat antar ruangan (garis tipis di lantai) --
+    d.line([Ti, Bi], fill=(140, 118, 96, 255), width=S)
+    d.line([Li, Ri], fill=(140, 118, 96, 255), width=S)
+
+    # -- atap melayang gable terbuka di atas dinding belakang --
+    Ap = (C[0], C[1] - hw - gap - hr)
+    b1 = up(L, hw + gap)
+    b2 = up(T, hw + gap)
+    b3 = up(R, hw + gap)
+    # sisi bawah atap (tidus) tampak sebagai strip gelap tipis
+    d.polygon([b1, b3, (b3[0], b3[1] + 8 * S), (b1[0], b1[1] + 8 * S)],
+              fill=(120, 66, 40, 255))
+    # dua bidang atap
+    d.polygon([b1, b2, Ap], fill=MERAH_ATAP_GELAP)
+    d.polygon([b2, b3, Ap], fill=MERAH_ATAP)
+    garis_genteng2 = 4
+    for i in range(1, garis_genteng2):
+        t = i / float(garis_genteng2)
+        p0 = (int(b1[0] + (Ap[0] - b1[0]) * t), int(b1[1] + (Ap[1] - b1[1]) * t))
+        p1 = (int(b2[0] + (Ap[0] - b2[0]) * t), int(b2[1] + (Ap[1] - b2[1]) * t))
+        d.line([p0, p1], fill=(180, 76, 52, 255), width=S)
+    d.line([b1, b2, b3], fill=OL, width=3 * S)
+    d.line([b1, Ap], fill=OL, width=3 * S)
+    d.line([b3, Ap], fill=OL, width=3 * S)
+
+    simpan2x(img, nama, w, h)
+
+
+cutaway_interior("interior-rumah.png", 256, 256, 128, 118, 100, 44)
+cutaway_interior("interior-kost.png", 512, 256, 256, 118, 200, 88)
+cutaway_interior("interior-apartemen.png", 512, 256, 256, 118, 200, 88)
+cutaway_interior("interior-perumahan.png", 768, 384, 384, 236, 300, 132)
 
 
 # ================= PERABOT (128x128) =================

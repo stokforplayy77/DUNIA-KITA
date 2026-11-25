@@ -273,6 +273,7 @@ public class InteriorManager : MonoBehaviour
         }
         BangunanDalamInterior = b;
         tampilan.TampilkanInterior(denah);
+        StartCoroutine(AnimasiPopInterior(tampilan.gameObject));
         List<string> isi = AmbilInterior(b);
 
         if (mode3D)
@@ -392,6 +393,9 @@ public class InteriorManager : MonoBehaviour
     // Keluar mode interior: sprite luar kembali, anak-anak dihapus.
     public void KeluarModeInterior()
     {
+        StopAllCoroutines();
+        if (objekPop != null) objekPop.transform.localScale = skalaAsliPop;
+        objekPop = null;
         if (BangunanDalamInterior == null)
         {
             return;
@@ -405,6 +409,33 @@ public class InteriorManager : MonoBehaviour
             tampilan.TampilkanLuar();
         }
         BangunanDalamInterior = null;
+    }
+
+    // Pop kecil saat masuk mode interior: skala 0.8 -> overshoot 1.04
+    // -> 1.0 selama ~0.25 detik. Skala asli objek selalu dipulihkan
+    // (juga saat KeluarModeInterior memotong animasi).
+    private GameObject objekPop;
+    private Vector3 skalaAsliPop;
+
+    private System.Collections.IEnumerator AnimasiPopInterior(GameObject objek)
+    {
+        if (objek == null) yield break;
+        objekPop = objek;
+        skalaAsliPop = objek.transform.localScale;
+        const float durasi = 0.25f;
+        float waktu = 0f;
+        while (waktu < durasi && objek != null)
+        {
+            waktu += Time.deltaTime;
+            float t = Mathf.Clamp01(waktu / durasi);
+            // kurva overshoot: naik cepat, turun lembut ke 1
+            float skala = t < 0.6f
+                ? Mathf.Lerp(0.8f, 1.04f, t / 0.6f)
+                : Mathf.Lerp(1.04f, 1f, (t - 0.6f) / 0.4f);
+            objek.transform.localScale = skalaAsliPop * skala;
+            yield return null;
+        }
+        if (objek != null) objek.transform.localScale = skalaAsliPop;
     }
 
     // Gambar ulang anak interior sesudah beli/hapus perabot

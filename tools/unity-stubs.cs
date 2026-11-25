@@ -55,6 +55,7 @@ namespace UnityEngine
         // FASE 7: coroutine (ServerManager memakai UnityWebRequest
         // lewat coroutine; di stub tidak ada eksekusi nyata).
         public Coroutine StartCoroutine(IEnumerator routine) { return null; }
+        public void StopAllCoroutines() { }
         public void StopCoroutine(Coroutine routine) { }
     }
 
