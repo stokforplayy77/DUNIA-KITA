@@ -153,7 +153,14 @@ class Penangan(BaseHTTPRequestHandler):
                 pemain = self._butuh_pemain(query)
                 if pemain is None:
                     return
-                self._kirim(200, {"ok": True, **self.db.dunia(pemain["distrik_aktif"])})
+                self._kirim(200, {"ok": True, **self.db.dunia(
+                    pemain["distrik_aktif"], pemain)})
+            elif jalur == "/api/warga" and metode == "GET":
+                pemain = self._butuh_pemain(query)
+                if pemain is None:
+                    return
+                self._kirim(200, {"ok": True, **self.db.daftar_warga(
+                    pemain["distrik_aktif"])})
             elif jalur == "/api/distrik" and metode == "GET":
                 pemain = self._butuh_pemain(query)
                 if pemain is None:

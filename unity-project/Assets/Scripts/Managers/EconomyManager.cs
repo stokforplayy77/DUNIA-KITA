@@ -53,6 +53,16 @@ public class EconomyManager : MonoBehaviour
     // kembalikan ringkasannya untuk ditampilkan sebagai laporan hari.
     public EconomyCalculator.RingkasanHarian TerapkanHari()
     {
+        // FASE 7 (tycoon): di mode online pemasukan & perawatan dihitung
+        // server dari warga NPC yang menyewa dan berbelanja (koin server
+        // diterapkan lewat sinkron). Ekonomi lokal tidak dijalankan
+        // supaya uang tidak dihitung dua kali.
+        if (ServerManager.Instance != null && ServerManager.Instance.ModeOnline)
+        {
+            PengaliHujanBesok = 100;
+            SewaKostHilangHariIni = false;
+            return new EconomyCalculator.RingkasanHarian();
+        }
         List<EconomyCalculator.CatatanBangunan> catatan = BuatCatatan();
         int kebahagiaan = citizenManager != null
             ? citizenManager.Kebahagiaan

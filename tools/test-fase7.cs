@@ -44,17 +44,17 @@ public static class TesFase7
     public static void Main()
     {
         Console.WriteLine("== Tes A: harga tanah menurut jarak ==");
-        Periksa(SistemWaliKota.HargaTanah(0, 0) == 300000,
-            "pinggir (0,0) jarak 11 -> Rp300.000");
-        Periksa(SistemWaliKota.HargaTanah(23, 23) == 200000,
-            "pinggir terjauh (23,23) jarak 12 -> Rp200.000");
-        Periksa(SistemWaliKota.HargaTanah(11, 11) == 1400000,
-            "pusat (11,11) Rp1.400.000");
-        Periksa(SistemWaliKota.HargaTanah(11, 12) == 1300000,
-            "pusat (11,12) jarak 1 -> Rp1.300.000");
-        Periksa(SistemWaliKota.HargaTanah(0, 11) == 300000,
-            "(0,11) jarak 11 -> Rp300.000");
-        Periksa(SistemWaliKota.HargaTanah(5, 5) == 800000,
+        Periksa(SistemWaliKota.HargaTanah(0, 0) == 200000,
+            "pinggir (0,0) jarak 19 -> Rp200.000");
+        Periksa(SistemWaliKota.HargaTanah(39, 39) == 200000,
+            "pinggir terjauh (39,39) jarak 20 -> Rp200.000");
+        Periksa(SistemWaliKota.HargaTanah(19, 19) == 920000,
+            "pusat (19,19) Rp920.000");
+        Periksa(SistemWaliKota.HargaTanah(19, 18) == 860000,
+            "pusat (19,18) jarak 1 -> Rp860.000");
+        Periksa(SistemWaliKota.HargaTanah(0, 19) == 200000,
+            "(0,19) jarak 19 -> Rp200.000");
+        Periksa(SistemWaliKota.HargaTanah(13, 13) == 560000,
             "(5,5) jarak 6 -> Rp800.000");
         Periksa(SistemWaliKota.HargaTanah(11, 11)
                 == SistemWaliKota.HargaTanah(11, 11),
@@ -284,8 +284,8 @@ public static class TesFase7
         Periksa(SaveData.VersiDidukung("1.0"), "1.0 tetap dimuat");
         Periksa(!SaveData.VersiDidukung("7.0"), "7.0 tidak didukung");
         Periksa(!SaveData.VersiDidukung(""), "versi kosong tidak didukung");
-        Periksa(GameBalance.UkuranGridDuniaBersama == 24,
-            "peta bersama 24x24");
+        Periksa(GameBalance.UkuranGridDuniaBersama == 40,
+            "peta bersama 40x40");
         Periksa(GameBalance.UkuranGridDuniaBersama
                 > GameBalance.UkuranGridDiperluas,
             "peta bersama lebih besar dari perluasan single player");

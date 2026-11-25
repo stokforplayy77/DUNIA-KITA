@@ -42,6 +42,23 @@ public class CitizenManager : MonoBehaviour
 
     public int KapasitasHilangHariIni = 0;
 
+    // FASE 7 (tycoon): ringkasan warga dari server — jumlah warga NPC
+    // di distrik dan berapa yang menyewa kamar milik pemain.
+    public int WargaServer { get; private set; }
+    public int PenyewaServer { get; private set; }
+
+    // Dipanggil ServerManager tiap sinkron (10 detik).
+    public void AturDariServer(int jumlah, int penyewa)
+    {
+        WargaServer = jumlah;
+        PenyewaServer = penyewa;
+        if (ServerManager.Instance != null && ServerManager.Instance.ModeOnline)
+        {
+            Populasi = penyewa;
+            SesuaikanWargaTampil();
+        }
+    }
+
     private BuildManager buildManager;
     private EconomyManager economyManager;
     private GridManager gridManager;
@@ -114,6 +131,12 @@ public class CitizenManager : MonoBehaviour
         if (Populasi > kapasitasEfektif)
         {
             Populasi = kapasitasEfektif;
+        }
+        // FASE 7 (tycoon): di mode online populasi = warga NPC yang
+        // benar-benar menyewa kamar milik pemain (dikirim server).
+        if (ServerManager.Instance != null && ServerManager.Instance.ModeOnline)
+        {
+            Populasi = PenyewaServer;
         }
         // FASE 4: bonus kebahagiaan fasilitas (perpustakaan, sekolah,
         // klinik, dsb. — dihitung murni dari catatan yang sama).

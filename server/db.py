@@ -30,15 +30,22 @@ akhir):
   ditolak otomatis: reputasi < 15, atau 4+ bangunan sejenis di
   kawasan. Disetujui bila skor >= 40, bersyarat bila 25-39.
 
-PEMASUKAN OFFLINE (dihitung saat /api/masuk): tiap bangunan milik
-pemain menghasilkan (pemasukan - perawatan) per hari game, dikurangi
-pajak kota 2,5% dari pemasukan kotor — TANPA pengali warung /
-kebahagiaan / hujan / jalan (penyederhanaan yang didokumentasikan:
-efek-efek itu hanya berlaku saat bermain langsung; lihat
-AturanDuniaBersama.HitungPemasukanOffline yang memakai rumus sama).
-1 hari game = 300 detik waktu nyata (sama seperti klien);
-maks 24 hari game (2 jam waktu nyata). Bila bersih negatif dan koin
-tidak cukup, koin jadi 0 dan sisanya jadi tunggakan.
+WARGA NPC (tycoon): uang pemain datang dari WARGA, bukan dari angka
+tetap per bangunan. Tiap distrik punya 40 warga NPC yang hidup di
+server (tabel warga) sehingga semua pemain melihat orang yang sama:
+  - warga menyewa KAMAR di hunian milik pemain (kost/apartemen/
+    perumahan/rumah); sewa dibayar tiap hari game ke pemiliknya;
+  - warga BELANJA tiap hari di satu warung/toko/kafe/pasar milik
+    pemain; tamu dibatasi kapasitas bangunan, jadi membangun terlalu
+    banyak toko membuat tamu terbagi (bersaing dengan pemain lain);
+  - warga bergaji tiap hari; bila uangnya habis ia berhenti membayar
+    sewa hari itu tetapi tetap warga yang sama.
+Simulasi berjalan "malas" (saat ada request) dan memakai jam distrik
+(tabel simulasi). 1 hari game = 300 detik, maks 24 hari per jeda.
+Pajak kota 2,5% dari pemasukan kotor warga; perawatan bangunan tetap
+dipotong tiap hari. Fasilitas umum (kategori 2: balai kota, klinik,
+sekolah, taman, pos, dll.) dibangun dan diurus KOTA — pemain tidak
+bisa membeli tanah/izin/membangunnya.
 
 KEAMANAN DASAR: kata sandi PBKDF2-HMAC-SHA256 (100.000 iterasi,
 salt 16 byte per akun — TIDAK PERNAH disimpan polos); token
@@ -79,6 +86,38 @@ BANGUNAN = {
     "kampus": (10000000, 80000, 20000, 0, 2, 5, 3, 3),
     "alun_alun": (12000000, 0, 25000, 0, 2, 6, 3, 3),
 }
+
+# ---------------------------------------------------------------- data warga
+# Sewa per kamar per hari (bangunan hunian; kapasitas = jumlah kamar).
+SEWA_PER_KAMAR = {
+    "rumah": 0,
+    "kost": 5000,
+    "apartemen": 5000,
+    "perumahan": 5000,
+}
+# Bangunan komersial: id -> (tamu maks per hari, belanja per tamu).
+# Angka dipilih supaya pemasukan penuh kira-kira sama dengan angka
+# pemasukan lama di BANGUNAN (warung 16rb, toko 30rb, kafe 25rb,
+# pasar 60rb), jadi keseimbangan ekonomi tidak melonjak.
+BELANJA_WARGA = {
+    "warung": (8, 2000),
+    "toko_kelontong": (12, 2500),
+    "kafe": (10, 2500),
+    "pasar": (30, 2000),
+}
+GAJI_WARGA = 9000          # upah harian tiap warga
+UANG_AWAL_WARGA = 20000
+WARGA_PER_DISTRIK = 40
+# Fasilitas umum yang hanya boleh dibangun Kota/NPC. Jalan TIDAK
+# termasuk: pemain tetap boleh membeli/membangun jalan untuk
+# menghubungkan usaha (syarat izin Bersyarat butuh jalan bersebelahan).
+KOTA_SAJA = {"taman", "perpustakaan", "sekolah", "balaikota", "pos",
+             "klinik", "pembangkit", "kampus", "alun_alun"}
+NAMA_WARGA = [
+    "Adi", "Bunga", "Citra", "Dewi", "Eko", "Fitri", "Gilang", "Hana",
+    "Indra", "Joko", "Kartika", "Lestari", "Made", "Nina", "Oki", "Putri",
+    "Raka", "Sari", "Tono", "Umi", "Vina", "Wawan", "Yani", "Zaki",
+]
 
 # Konstanta Fase 7 (sama dengan GameBalance.cs — ubah di kedua tempat).
 UKURAN_PETA = 40
@@ -196,6 +235,34 @@ CREATE TABLE IF NOT EXISTS pesan_chat (
     isi TEXT NOT NULL,
     dibuat INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS warga (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    distrik_id INTEGER NOT NULL DEFAULT 1,
+    nama TEXT NOT NULL,
+    uang INTEGER NOT NULL DEFAULT 0,
+    hunian_x INTEGER NOT NULL DEFAULT -1,
+    hunian_y INTEGER NOT NULL DEFAULT -1,
+    pemilik_id INTEGER,
+    toko_x INTEGER NOT NULL DEFAULT -1,
+    toko_y INTEGER NOT NULL DEFAULT -1,
+    dibuat INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS simulasi (
+    distrik_id INTEGER PRIMARY KEY,
+    hari_terakhir INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS pendapatan_warga (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pemain_id INTEGER NOT NULL,
+    distrik_id INTEGER NOT NULL,
+    hari INTEGER NOT NULL,
+    sewa INTEGER NOT NULL DEFAULT 0,
+    penjualan INTEGER NOT NULL DEFAULT 0,
+    perawatan INTEGER NOT NULL DEFAULT 0,
+    dibuat INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_pendapatan_pemain
+    ON pendapatan_warga (pemain_id, hari);
 INSERT OR IGNORE INTO kas_kota (id, saldo) VALUES (1, 0);
 """
 
@@ -215,7 +282,14 @@ class DuniaDB:
                     "ALTER TABLE petak ADD COLUMN level INTEGER NOT NULL DEFAULT 1")
             except sqlite3.OperationalError:
                 pass
+            try:
+                self.koneksi.execute(
+                    "ALTER TABLE pendapatan_warga ADD COLUMN dibuat INTEGER"
+                    " NOT NULL DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass
             self._inisialisasi_kota_awal()
+            self._inisialisasi_warga_awal()
             self.koneksi.commit()
 
     def _inisialisasi_kota_awal(self):
@@ -277,6 +351,27 @@ class DuniaDB:
                         " VALUES (?, ?, ?, ?, 'jalan', ?, ?, '', NULL)",
                         (did, jx, jy, kota_id, jx, jy))
             self._pastikan_peristiwa_beragam(did)
+
+    def _inisialisasi_warga_awal(self):
+        """Isi tiap distrik dengan warga NPC bila belum ada (sekali saja)."""
+        now = int(time.time())
+        for d in self.koneksi.execute("SELECT id FROM distrik").fetchall():
+            did = d["id"]
+            self.koneksi.execute(
+                "INSERT OR IGNORE INTO simulasi (distrik_id, hari_terakhir)"
+                " VALUES (?, ?)", (did, now // DURASI_HARI_DETIK))
+            ada = self.koneksi.execute(
+                "SELECT COUNT(*) AS c FROM warga WHERE distrik_id = ?",
+                (did,)).fetchone()["c"]
+            if ada:
+                continue
+            for i in range(WARGA_PER_DISTRIK):
+                nama = NAMA_WARGA[i % len(NAMA_WARGA)] + " " + str(i // len(NAMA_WARGA) + 1)
+                self.koneksi.execute(
+                    "INSERT INTO warga (distrik_id, nama, uang, hunian_x,"
+                    " hunian_y, pemilik_id, toko_x, toko_y, dibuat)"
+                    " VALUES (?, ?, ?, -1, -1, NULL, -1, -1, ?)",
+                    (did, nama, UANG_AWAL_WARGA, now))
 
     def _pastikan_peristiwa_beragam(self, distrik_id=1):
         aktif = self.koneksi.execute(
@@ -403,42 +498,199 @@ class DuniaDB:
                        "bangunan": p["bangunan_id"]} for p in petak],
         }
 
-    # ------------------------------------------------------- pemasukan offline
-    def _pemasukan_offline_terkunci(self, baris_pemain, sekarang):
-        """Dihitung di dalam kunci tulis; baris_pemain = Row pemain."""
-        terakhir = baris_pemain["terakhir_masuk"] or sekarang
-        hari = (sekarang - terakhir) // DURASI_HARI_DETIK
+    # ------------------------------------------------------- warga & pendapatan
+    @staticmethod
+    def _pengali_level(level):
+        lv = max(1, min(3, int(level or 1)))
+        return (100, 125, 150)[lv - 1]
+
+    def _jalankan_simulasi_terkunci(self, distrik_id, sekarang):
+        """Jalankan hari-hari game yang terlewat untuk satu distrik.
+
+        WAJIB dipanggil di dalam self.kunci. Warga menyewa kamar dan
+        berbelanja; sewa, penjualan, perawatan dan pajak langsung
+        mengubah koin pemilik dan kas kota. Mengembalikan jumlah hari
+        yang dijalankan.
+        """
+        row = self.koneksi.execute(
+            "SELECT hari_terakhir FROM simulasi WHERE distrik_id = ?",
+            (distrik_id,)).fetchone()
+        hari_kini = sekarang // DURASI_HARI_DETIK
+        if row is None:
+            self.koneksi.execute(
+                "INSERT INTO simulasi (distrik_id, hari_terakhir) VALUES (?, ?)",
+                (distrik_id, hari_kini))
+            return 0
+        hari = min(hari_kini - row["hari_terakhir"], MAKS_HARI_OFFLINE)
         if hari <= 0:
-            return {"bersih": 0, "hari": 0}
-        if hari > MAKS_HARI_OFFLINE:
-            hari = MAKS_HARI_OFFLINE
+            return 0
+
+        hunian = {}
+        toko = []
+        perawatan = {}
         bangunan = self.koneksi.execute(
-            "SELECT bangunan_id FROM petak WHERE pemilik_id = ?"
-            " AND bangunan_id IS NOT NULL",
-            (baris_pemain["id"],)).fetchall()
-        kotor = 0
-        upkeep = 0
+            "SELECT p.x, p.y, p.bangunan_id, p.level, p.pemilik_id"
+            " FROM petak p WHERE p.distrik_id = ? AND p.bangunan_id IS NOT NULL"
+            " AND p.x = p.jangkar_x AND p.y = p.jangkar_y",
+            (distrik_id,)).fetchall()
         for b in bangunan:
             data = BANGUNAN.get(b["bangunan_id"])
-            if data is None:
+            if data is None or not b["pemilik_id"]:
                 continue
-            kotor += data[1]
-            upkeep += data[2]
-        pajak = kotor * hari * PAJAK_PERMIL // 1000
-        bersih = (kotor - upkeep) * hari - pajak
-        koin_baru = baris_pemain["koin"] + bersih
-        tunggakan_baru = baris_pemain["tunggakan"]
-        if koin_baru < 0:
-            tunggakan_baru += -koin_baru
-            koin_baru = 0
+            pengali = self._pengali_level(b["level"])
+            perawatan[b["pemilik_id"]] = perawatan.get(b["pemilik_id"], 0) + data[2]
+            if data[4] == 0 and data[3] > 0:
+                hunian[(b["x"], b["y"])] = {
+                    "pemilik": b["pemilik_id"],
+                    "kamar": max(1, data[3] * pengali // 100),
+                    "terisi": 0,
+                    "sewa": SEWA_PER_KAMAR.get(b["bangunan_id"], 0) * pengali // 100,
+                }
+            elif b["bangunan_id"] in BELANJA_WARGA:
+                tamu, harga = BELANJA_WARGA[b["bangunan_id"]]
+                toko.append({
+                    "x": b["x"], "y": b["y"],
+                    "pemilik": b["pemilik_id"],
+                    "tamu": max(1, tamu * pengali // 100),
+                    "harga": harga,
+                    "terisi": 0,
+                })
+        toko.sort(key=lambda t: (t["x"], t["y"]))
+
+        warga = self.koneksi.execute(
+            "SELECT id, uang, hunian_x, hunian_y FROM warga"
+            " WHERE distrik_id = ? ORDER BY id", (distrik_id,)).fetchall()
+        if not warga:
+            self.koneksi.execute(
+                "UPDATE simulasi SET hari_terakhir = ? WHERE distrik_id = ?",
+                (hari_kini, distrik_id))
+            return hari
+
+        # Tempatkan warga: yang sudah punya kamar valid tetap, sisanya
+        # mengisi kamar kosong milik pemain.
+        rumah_warga = {}
+        for w in warga:
+            kunci = (w["hunian_x"], w["hunian_y"])
+            h = hunian.get(kunci)
+            if h is not None and h["terisi"] < h["kamar"]:
+                h["terisi"] += 1
+                rumah_warga[w["id"]] = kunci
+        for w in warga:
+            if w["id"] in rumah_warga:
+                continue
+            for kunci in hunian:
+                h = hunian[kunci]
+                if h["terisi"] < h["kamar"]:
+                    h["terisi"] += 1
+                    rumah_warga[w["id"]] = kunci
+                    break
+
+        sewa_total = {}
+        jual_total = {}
+        uang_warga = {w["id"]: w["uang"] for w in warga}
+        toko_warga = {}
+        for hari_ke in range(hari_kini - hari + 1, hari_kini + 1):
+            for t in toko:
+                t["terisi"] = 0
+            for w in warga:
+                uid = w["id"]
+                uang_warga[uid] += GAJI_WARGA
+                kunci = rumah_warga.get(uid)
+                if kunci is not None:
+                    sewa = hunian[kunci]["sewa"]
+                    if sewa > 0 and uang_warga[uid] >= sewa:
+                        uang_warga[uid] -= sewa
+                        pemilik = hunian[kunci]["pemilik"]
+                        sewa_total[pemilik] = sewa_total.get(pemilik, 0) + sewa
+                pilihan = [i for i, t in enumerate(toko)
+                           if t["terisi"] < t["tamu"]]
+                if not pilihan:
+                    toko_warga[uid] = None
+                    continue
+                pilih = pilihan[(uid * 7 + hari_ke * 13) % len(pilihan)]
+                t = toko[pilih]
+                if uang_warga[uid] < t["harga"]:
+                    toko_warga[uid] = None
+                    continue
+                uang_warga[uid] -= t["harga"]
+                t["terisi"] += 1
+                jual_total[t["pemilik"]] = jual_total.get(t["pemilik"], 0) + t["harga"]
+                toko_warga[uid] = (t["x"], t["y"])
+
+        pemilik_terlibat = set(sewa_total) | set(jual_total) | set(perawatan)
+        for pid in pemilik_terlibat:
+            sewa = sewa_total.get(pid, 0)
+            jual = jual_total.get(pid, 0)
+            rawat = perawatan.get(pid, 0) * hari
+            pajak = (sewa + jual) * PAJAK_PERMIL // 1000
+            bersih = sewa + jual - rawat - pajak
+            baris = self.koneksi.execute(
+                "SELECT koin, tunggakan FROM pemain WHERE id = ?",
+                (pid,)).fetchone()
+            if baris is None:
+                continue
+            koin = baris["koin"] + bersih
+            tunggakan = baris["tunggakan"]
+            if koin < 0:
+                tunggakan += -koin
+                koin = 0
+            self.koneksi.execute(
+                "UPDATE pemain SET koin = ?, tunggakan = ? WHERE id = ?",
+                (koin, tunggakan, pid))
+            self.koneksi.execute(
+                "INSERT INTO pendapatan_warga (pemain_id, distrik_id, hari,"
+                " sewa, penjualan, perawatan, dibuat)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (pid, distrik_id, hari_kini, sewa, jual, rawat + pajak,
+                 sekarang))
+            self.koneksi.execute(
+                "UPDATE kas_kota SET saldo = saldo + ? WHERE id = 1", (pajak,))
+
+        for w in warga:
+            uid = w["id"]
+            kunci = rumah_warga.get(uid)
+            tujuan = toko_warga.get(uid)
+            hx, hy = kunci if kunci is not None else (-1, -1)
+            tx, ty = tujuan if tujuan is not None else (-1, -1)
+            self.koneksi.execute(
+                "UPDATE warga SET uang = ?, hunian_x = ?, hunian_y = ?,"
+                " pemilik_id = ?, toko_x = ?, toko_y = ? WHERE id = ?",
+                (max(0, uang_warga[uid]), hx, hy,
+                 hunian[kunci]["pemilik"] if kunci is not None else None,
+                 tx, ty, uid))
         self.koneksi.execute(
-            "UPDATE pemain SET koin = ?, tunggakan = ? WHERE id = ?",
-            (koin_baru, tunggakan_baru, baris_pemain["id"]))
-        return {"bersih": bersih, "hari": hari}
+            "UPDATE simulasi SET hari_terakhir = ? WHERE distrik_id = ?",
+            (hari_kini, distrik_id))
+        self.koneksi.commit()
+        return hari
+
+    def _pemasukan_offline_terkunci(self, baris_pemain, sekarang):
+        """Dihitung di dalam kunci tulis; baris_pemain = Row pemain.
+
+        Menjalankan simulasi distrik pemain lebih dulu (uangnya sudah
+        masuk ke koin), lalu melaporkan pendapatan warga selama ia pergi.
+        """
+        terakhir = baris_pemain["terakhir_masuk"] or sekarang
+        hari = (sekarang - terakhir) // DURASI_HARI_DETIK
+        hari = max(0, min(hari, MAKS_HARI_OFFLINE))
+        did = baris_pemain["distrik_aktif"] \
+            if "distrik_aktif" in baris_pemain.keys() else 1
+        self._jalankan_simulasi_terkunci(did, sekarang)
+        if hari <= 0:
+            return {"bersih": 0, "hari": 0}
+        baris = self.koneksi.execute(
+            "SELECT COALESCE(SUM(sewa), 0) AS sewa,"
+            " COALESCE(SUM(penjualan), 0) AS jual,"
+            " COALESCE(SUM(perawatan), 0) AS rawat FROM pendapatan_warga"
+            " WHERE pemain_id = ? AND dibuat > ?",
+            (baris_pemain["id"], terakhir)).fetchone()
+        return {"bersih": baris["sewa"] + baris["jual"] - baris["rawat"],
+                "hari": hari}
 
     # ------------------------------------------------------------------ dunia
-    def dunia(self, distrik_id=1):
+    def dunia(self, distrik_id=1, pemain=None):
         with self.kunci:
+            self._jalankan_simulasi_terkunci(distrik_id, int(time.time()))
             drow = self.koneksi.execute(
                 "SELECT id, nama FROM distrik WHERE id = ?", (distrik_id,)).fetchone()
             nama_distrik = drow["nama"] if drow is not None else "Distrik Pusat"
@@ -457,7 +709,16 @@ class DuniaDB:
                 "SELECT saldo FROM kas_kota WHERE id = 1").fetchone()
             jumlah = self.koneksi.execute(
                 "SELECT COUNT(*) AS n FROM pemain").fetchone()
-        return {
+            warga = self.koneksi.execute(
+                "SELECT COUNT(*) AS jumlah,"
+                " SUM(CASE WHEN hunian_x >= 0 THEN 1 ELSE 0 END) AS penyewa"
+                " FROM warga WHERE distrik_id = ?", (distrik_id,)).fetchone()
+            baris_pemain = None
+            if pemain is not None:
+                baris_pemain = self.koneksi.execute(
+                    "SELECT id, nama, koin, permata, reputasi, level, tunggakan"
+                    " FROM pemain WHERE id = ?", (pemain["id"],)).fetchone()
+        hasil = {
             "distrik_id": distrik_id,
             "nama_distrik": nama_distrik,
             "ukuran": UKURAN_PETA,
@@ -469,7 +730,31 @@ class DuniaDB:
                       for t in tanah],
             "kas_kota": kas["saldo"],
             "jumlah_pemain": jumlah["n"],
+            "warga": {"jumlah": warga["jumlah"] or 0,
+                      "penyewa": warga["penyewa"] or 0},
         }
+        if baris_pemain is not None:
+            hasil["profil"] = {
+                "id": baris_pemain["id"],
+                "nama": baris_pemain["nama"],
+                "koin": baris_pemain["koin"],
+                "permata": baris_pemain["permata"],
+                "reputasi": baris_pemain["reputasi"],
+                "level": baris_pemain["level"],
+                "tunggakan": baris_pemain["tunggakan"],
+            }
+        return hasil
+
+    def daftar_warga(self, distrik_id=1):
+        """Daftar warga NPC satu distrik untuk ditampilkan klien."""
+        with self.kunci:
+            self._jalankan_simulasi_terkunci(distrik_id, int(time.time()))
+            rows = self.koneksi.execute(
+                "SELECT w.id, w.nama, w.uang, w.hunian_x, w.hunian_y,"
+                " w.pemilik_id, w.toko_x, w.toko_y, p.nama AS pemilik"
+                " FROM warga w LEFT JOIN pemain p ON p.id = w.pemilik_id"
+                " WHERE w.distrik_id = ? ORDER BY w.id", (distrik_id,)).fetchall()
+        return {"warga": [dict(r) for r in rows]}
 
     def daftar_distrik(self, pemain):
         with self.kunci:
@@ -526,6 +811,15 @@ class DuniaDB:
             return None, "Perubahan koin melebihi batas sinkron (Rp6.000.000)"
         sekarang = int(time.time())
         with self.kunci:
+            baris_koin = self.koneksi.execute(
+                "SELECT koin FROM pemain WHERE id = ?",
+                (pemain["id"],)).fetchone()
+            koin_server = baris_koin["koin"] if baris_koin else pemain["koin"]
+            # Koin pemain tidak pernah turun karena sinkron: semua
+            # pengeluaran divalidasi server (bangun, izin, jual, upgrade)
+            # dan pendapatan warga sudah ditambahkan server. Klien yang
+            # belum melihat pendapatan itu tidak boleh menghapusnya.
+            koin = max(koin, koin_server)
             self.koneksi.execute(
                 "UPDATE pemain SET koin = ?, reputasi = ?,"
                 " terakhir_masuk = ? WHERE id = ?",
@@ -570,6 +864,9 @@ class DuniaDB:
                     dilewati += 1
                     continue
                 if bangunan_id not in BANGUNAN:
+                    dilewati += 1
+                    continue
+                if bangunan_id in KOTA_SAJA:
                     dilewati += 1
                     continue
                 _b, _m, _r, _k, _kat, _lvl, lebar, tinggi = BANGUNAN[bangunan_id]
@@ -676,6 +973,13 @@ class DuniaDB:
         data = BANGUNAN[bangunan_id]
         kategori = data[4]
         did = pemain["distrik_aktif"] if "distrik_aktif" in pemain.keys() else 1
+        if bangunan_id in KOTA_SAJA:
+            harga = self.harga_tanah(x, y)
+            return {"hasil": "Ditolak", "harga_tanah": harga,
+                    "biaya_izin": 0, "total": 0, "syarat": "",
+                    "alasan": "Fasilitas umum (" + bangunan_id.replace("_", " ")
+                    + ") dibangun dan diurus Kota oleh warga NPC. Pemain "
+                    "mengelola usaha dan hunian, bukan fasilitas umum."}
         kas = self.koneksi.execute(
             "SELECT saldo FROM kas_kota WHERE id = 1").fetchone()["saldo"]
         ada_balaikota = self._ada_balaikota(did)
@@ -744,8 +1048,11 @@ class DuniaDB:
     def ajukan_izin(self, pemain, x, y, bangunan_id):
         if bangunan_id not in BANGUNAN:
             return None, "Bangunan tidak dikenal: " + str(bangunan_id)
+        if bangunan_id in KOTA_SAJA:
+            return None, "Fasilitas umum dibangun dan diurus Kota oleh warga NPC."
         if not (0 <= x < UKURAN_PETA and 0 <= y < UKURAN_PETA):
-            return None, "Petak di luar peta bersama (0-23)."
+            return None, ("Petak di luar peta bersama (0-%d)."
+                          % (UKURAN_PETA - 1))
         did = pemain["distrik_aktif"] if "distrik_aktif" in pemain.keys() else 1
         with self.kunci:
             lama = self.koneksi.execute(
@@ -829,6 +1136,8 @@ class DuniaDB:
             return None, "Bangunan tidak dikenal: " + str(bangunan_id)
         biaya, _masuk, _rawat, _kap, _kat, _lvl, lebar, tinggi = \
             BANGUNAN[bangunan_id]
+        if bangunan_id in KOTA_SAJA:
+            return None, "Fasilitas umum dibangun dan diurus Kota oleh warga NPC."
         if not (0 <= x and 0 <= y and x + lebar <= UKURAN_PETA
                 and y + tinggi <= UKURAN_PETA):
             return None, "Tapak bangunan keluar dari peta bersama."

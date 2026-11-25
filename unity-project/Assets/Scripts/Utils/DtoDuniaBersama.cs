@@ -66,6 +66,37 @@ public class ResponDunia
     public PetakDto[] tanah;
     public long kas_kota;
     public int jumlah_pemain;
+    public PemainDto profil;
+    public WargaRingkasDto warga;
+}
+
+[Serializable]
+public class WargaRingkasDto
+{
+    public int jumlah;
+    public int penyewa;
+}
+
+[Serializable]
+public class WargaDto
+{
+    public int id;
+    public string nama;
+    public long uang;
+    public int hunian_x;
+    public int hunian_y;
+    public int pemilik_id;
+    public int toko_x;
+    public int toko_y;
+    public string pemilik;
+}
+
+[Serializable]
+public class ResponWarga
+{
+    public bool ok;
+    public string kesalahan;
+    public WargaDto[] warga;
 }
 
 [Serializable]

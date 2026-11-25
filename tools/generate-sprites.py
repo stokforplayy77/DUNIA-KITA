@@ -81,7 +81,30 @@ def baru():
     return img, ImageDraw.Draw(img, "RGBA")
 
 
+SPRITE_HD = {
+    "apartemen.png", "balaikota.png", "kafe.png", "klinik.png",
+    "kost.png", "pasar.png", "pembangkit.png", "pos.png", "rumah.png",
+    "sekolah.png", "taman.png", "toko.png", "warung.png",
+    # Gelombang HD 25 Nov 2026: 4 bangunan + interior + perabot + warga
+    # + ikon tombol bangun, semua dari tools/proses-aset-anime.py.
+    "perpustakaan.png", "perumahan.png", "kampus.png", "alun-alun.png",
+    "interior-rumah.png", "interior-kost.png", "interior-perumahan.png",
+    "interior-apartemen.png",
+    "perabot-bak_mandi.png", "perabot-kasur.png", "perabot-kompor.png",
+    "perabot-kursi.png", "perabot-lampu.png", "perabot-lemari.png",
+    "perabot-meja.png", "perabot-sofa.png", "perabot-tv.png",
+    "perabot-wastafel.png",
+    "warga1.png", "warga1-a.png", "warga1-b.png",
+    "warga2.png", "warga2-a.png", "warga2-b.png",
+    "warga3.png", "warga3-a.png", "warga3-b.png",
+    "ikon-bangun.png",
+}
+
+
 def simpan(img, nama):
+    if nama in SPRITE_HD:
+        print("lewati (sprite HD disetujui user)", nama)
+        return
     jalur = os.path.join(OUT, nama)
     img.save(jalur, "PNG")
     print("tulis", jalur, img.size)

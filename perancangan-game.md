@@ -9,30 +9,30 @@
 | Item | Isi |
 |---|---|
 | Nama | **Dunia Kita** |
-| Genre | Simulasi membangun dunia (world builder / city builder) 2,5D |
+| Genre | Simulasi **tycoon** (pengelola usaha & sewa) 2,5D — bukan city builder |
 | Platform | Mobile — **Android + iOS**; satu project Unity dapat di-build ke berbagai platform (Windows/Mac/WebGL menyusul bila diperlukan) |
 | Engine | **Unity** (versi LTS, 2022 LTS) |
 | Bahasa | C# |
 | Tampilan | Isometric 2,5D — dunia terlihat berdimensi dari sudut miring, logika permainan tetap 2D |
-| Mode | Single player (multiplayer hanya rencana jauh) |
-| Pemain | Satu pemain membangun dan mengelola satu dunia miliknya |
+| Mode | **Multipemain: satu peta bersama, banyak pemain sekaligus** (diputuskan user 25 Nov 2026) |
+| Pemain | Tiap pemain adalah pemilik & pengelola usaha (warung, toko, kafe) dan sewa (kost, apartemen, kontrakan) di satu peta bersama; warga NPC adalah pembeli dan penyewa |
 
 ## 2. Visi & Pilar Desain
 
-**Visi:** satu dunia di genggaman, tempat pemain bebas membangun apa saja — kost, rumah, sekolah, toko, taman — dan melihat dunia itu hidup: warga beraktivitas, ekonomi berjalan, kota tumbuh dari kosong sampai ramai.
+**Visi:** satu dunia bersama di genggaman, tempat tiap pemain berdagang dan menyewakan kamar kepada warga NPC yang sama dengan pemain lain — kost, warung, toko, kafe, apartemen — dan melihat kota itu hidup dari kosong sampai ramai.
 
 **Pilar desain (tidak boleh dilanggar):**
-1. **Bebas, tapi bermakna** — pemain boleh membangun apa saja, tapi tiap bangunan punya fungsi dan konsekuensi (bukan sekadar hiasan).
+1. **Pemain pedagang, bukan pembangun kota** — pemain membangun dan mengelola usaha serta hunian sewa; rumah-rumah warga, sekolah, klinik, taman dan balai kota disediakan Kota.
 2. **Mudah dimainkan di HP** — semua aksi cukup tap, geser, dan cubit (pinch); tidak ada kontrol rumit.
-3. **Dunia yang hidup** — warga berjalan, siang-malam berganti, bangunan bereaksi terhadap keputusan pemain.
-4. **Progresi yang terasa** — dari sebidang tanah kosong sampai kota kecil yang ramai, dengan pencapaian yang jelas di tiap tahap.
+3. **Dunia yang hidup dan dibagi** — warga NPC yang sama terlihat oleh semua pemain: mereka berjalan, menyewa kamar, berbelanja, dan masuk-keluar bangunan.
+4. **Progresi yang terasa** — dari satu warung sampai jaringan usaha yang bersaing dengan pemain lain.
 
 ## 3. Konsep Permainan
 
-Pemain memulai dengan sebidang tanah kosong dan modal awal. Di atas grid isometric, pemain menempatkan bangunan, jalan, dan taman. Bangunan menghasilkan uang atau memenuhi kebutuhan warga; warga datang bila dunia layak huni; dunia naik level bila populasi dan kebahagiaan naik; level baru membuka bangunan baru.
+Pemain memulai dengan modal awal dan membangun usaha pertama: warung, lalu kost, lalu toko/kafe. Warga NPC datang sendiri sebagai pembeli dan penyewa; dari merekalah koin pemain berasal. Karena satu peta dipakai bersama, warga yang sama bisa memilih warung pemain lain — jumlah tamu dan penyewa dihitung server, sehingga pemain bersaing sehat.
 
 **Core loop (satu putaran permainan):**
-Bangun/tingkatkan bangunan → warga datang dan beraktivitas → pemasukan & sumber daya bertambah → buka bangunan dan area baru → hadapi kejadian (warga protes, kebakaran kecil, musim hujan) → ulangi dengan dunia yang lebih besar.
+Bangun/tingkatkan usaha & hunian → warga NPC menyewa kamar dan berbelanja → sewa & penjualan masuk (server) → perluas usaha, tawarkan kamar lebih banyak → hadapi kejadian (warga protes, hujan, festival) → ulangi.
 
 **Kondisi menang:** tidak ada "tamat" — ini game sandbox. Kemenangan diukur lewat **tingkatan dunia** (Desa → Kota Kecil → Kota → Metropolis) dan pencapaian (achievement). Pemain bebas terus bermain setelah mencapai Metropolis.
 
@@ -70,14 +70,18 @@ Bangunan dikelompokkan dalam 5 kategori. Tiap bangunan punya: biaya bangun, ukur
 | Pasar | 2×2 | Pemasukan besar, butuh jalan |
 | Kafe | 1×1 | Pemasukan + kebahagiaan |
 
-### 5.4 Fasilitas & Layanan
+### 5.4 Fasilitas & Layanan — **milik Kota, bukan pemain**
 | Bangunan | Ukuran | Fungsi |
 |---|---|---|
 | Taman | 1×1 | Kebahagiaan area sekitar naik |
-| Pos Keamanan | 1×1 | Menurunkan kejadian kejahatan |
+| Pos Keamanan | 1×1 | Keamanan antar pemain dijaga NPC Kota |
 | Klinik | 2×2 | Kesehatan warga, kebahagiaan naik |
+| Sekolah / Perpustakaan / Kampus | 2×2 | Pendidikan warga; diurus Kota |
+| Balai Kota | 3×3 | Wali kota NPC, izin & kas kota |
 | Pembangkit Listrik Kecil | 2×2 | Menyediakan listrik untuk area |
 | Sumur / Menara Air | 1×1 | Menyediakan air untuk area |
+
+Pemain tidak membangun bagian ini: server menolak izin, pembangunan, dan pembelian tanah untuk bangunan kategori Fasilitas (diputuskan user 25 Nov 2026).
 
 ### 5.5 Jalan & Dekorasi
 - Jalan (1 petak): menghubungkan bangunan; bangunan tanpa jalan tidak berfungsi penuh.
@@ -113,19 +117,22 @@ Game ini memiliki interior penuh, dengan cara kerja **tembus pandang (x-ray)** �
 
 ## 6. Sistem Ekonomi
 
-- **Mata uang:** Koin (diperoleh dari pemasukan bangunan & pajak warga) dan Permata (langka, dari pencapaian — dipakai untuk mempercepat atau membeli dekorasi khusus).
-- **Pemasukan harian:** sewa kost/rumah + penjualan toko + pajak warga.
-- **Pengeluaran harian:** perawatan bangunan, gaji layanan (keamanan, klinik), listrik & air.
-- **Aturan penting:** dunia yang hanya berisi toko tanpa hunian akan sepi (tidak ada pembeli); dunia yang hanya berisi rumah tanpa toko akan miskin (tidak ada pemasukan). Pemain harus menyeimbangkan keduanya.
+- **Mata uang:** Koin (diperoleh dari **sewa kamar dan belanja warga NPC**) dan Permata (langka, dari pencapaian).
+- **Pemasukan harian:** sewa per kamar terisi (kost/apartemen/perumahan) + belanja tamu di warung/toko/kafe/pasar. Tidak ada lagi angka pemasukan tetap per bangunan.
+- **Pengeluaran harian:** perawatan bangunan (dipotong server tiap hari) + pajak kota 2,5% dari pemasukan kotor.
+- **Aturan penting:** warga NPC adalah sumber uang satu-satunya. Bangunan komersial punya kapasitas tamu per hari, jadi pemain yang membangun terlalu banyak toko akan berebut tamu yang sama — dengan pemain lain di peta yang sama.
+- **Fasilitas umum** (balai kota, klinik/RS, sekolah, perpustakaan, taman, pos keamanan, pembangkit, kampus, alun-alun) milik **Kota** dan diurus NPC: pemain tidak bisa membeli tanahnya, mengajukan izin, atau membangunnya.
 - **Pinjaman (rencana fase lanjutan):** pemain bisa meminjam modal dengan cicilan harian — mengajarkan manajemen utang.
 
 ## 7. Sistem Warga
 
-- **Warga** muncul bila ada hunian kosong dan kebahagiaan dunia cukup. Tiap warga punya: nama acak Indonesia, pekerjaan (pelajar, pekerja toko, guru, dsb.), dan tingkat kebahagiaan.
-- **Kebahagiaan warga** dipengaruhi: ada tidaknya taman/sekolah/klinik di dekat rumah, ada tidaknya toko, kebersihan (bangunan rusak menurunkan kebahagiaan).
-- **Warga tidak bahagia** akan pindah — hunian kosong berarti pemasukan berhenti.
-- **Visual:** warga tampil sebagai karakter kecil yang berjalan di jalan antar bangunan (animasi sederhana, bukan simulasi penuh).
-- **Karakter penghuni ditambahkan nanti** (diputuskan user 24 Nov 2026): sprite + animasi penghuni dibuat di fase lanjutan, setelah sistem warga berfungsi. Di mode tembus pandang, penghuni terlihat berada di dalam ruangan (mis. di kamar tidur / ruang tamu).
+- **Warga adalah NPC milik server**, bukan angka hasil jumlah hunian. Tiap distrik punya 40 warga bernama Indonesia; semua pemain melihat warga yang sama (`server/db.py` tabel `warga`).
+- **Menyewa:** warga mengisi kamar kosong di hunian milik pemain dan membayar sewa tiap hari game ke pemiliknya. Kamar kosong berarti pemasukan berhenti.
+- **Berbelanja:** tiap hari tiap warga memilih satu warung/toko/kafe/pasar milik pemain; jumlah tamu dibatasi kapasitas bangunan.
+- **Bergaji:** warga menerima upah harian; bila uangnya habis ia melewati sewa hari itu.
+- **Satuan waktu:** 1 hari game = 300 detik; simulasi berjalan di server saat ada permintaan (maks 24 hari per jeda), jadi pemain tetap mendapat sewa saat aplikasi ditutup.
+- **Visual:** warga tampil sebagai karakter kecil yang berjalan, lalu **masuk ke bangunan** dan keluar lagi (pintu, animasi mengecil/memudar, muncul kembali).
+- **Karakter penghuni ditambahkan nanti** (diputuskan user 24 Nov 2026): sprite + animasi penghuni dibuat di fase lanjutan. Di mode tembus pandang, penghuni terlihat berada di dalam ruangan (mis. di kamar tidur / ruang tamu).
 
 ## 8. Sistem Level & Progresi Dunia
 
@@ -263,7 +270,8 @@ Diputuskan SETELAH game bisa dimainkan dan seru. Opsi: iklan berhadiah (tonton i
 
 - **Nama game: Dunia Kita** (final).
 - **Platform: Android + iOS** (multi-platform; satu project Unity).
-- Single player saja di Fase 1–6 — multiplayer sebagai Fase 7 (bukan rencana jauh lagi, sudah jadi visi).
+- **Arah final: TYCOON MULTIPEMAIN, satu peta bersama** (ditegaskan user 25 Nov 2026). Pemain = pemilik & pengelola usaha (warung, toko, kafe) dan sewa (kost, apartemen, kontrakan); warga NPC = pembeli & penyewa yang sama untuk semua pemain. Pemain TIDAK membangun rumah untuk warga. Sekolah, klinik, taman, balai kota, pos keamanan = milik Kota/NPC.
+- **Single player dulu** di Fase 1–6 (sudah dikerjakan); sejak 25 Nov 2026 arah lanjutannya tycoon multipemain seperti di atas.
 - **Dunia Bersama (diputuskan user 24 Nov 2026):** satu peta BESAR dipakai banyak orang; tiap pemain bisa membangun rumah, usaha, dan apa saja di peta yang sama; dunia tersimpan di server dan terus berjalan walau pemain offline. **Wali Kota** (diputuskan user 24 Nov 2026): supaya tidak seenaknya membangun — tanah harus dibeli lewat wali kota (ajukan → urus izin → bayar → disetujui → baru boleh bangun); uang masuk kas kota. **Wali kota tetap NPC** (diputuskan user 24 Nov 2026, BUKAN peran pemain), **tapi cara berpikirnya macam-macam**: keputusan izin menimbang lokasi tanah, reputasi pemain, jenis bangunan yang direncanakan, kondisi kas kota, dan kepadatan kawasan — bisa menyetujui, menolak, atau menyetujui dengan syarat/harga berbeda.
 - **Wali kota HANYA di Fase 7 (multiplayer), TIDAK di Fase 2** (diputuskan user 24 Nov 2026: "nanti saja").
 - **Bangun semua sistem dulu secara detail** (perintah user 24 Nov 2026): kerjakan sistem inti single player (Fase 2–4, 4B) sampai detail sebelum masuk multiplayer.

@@ -34,6 +34,20 @@ public class PejalanKaki : MonoBehaviour
     private Sprite spriteDiam;
     private Sprite[] frameJalan;
     private int indeksFrame;
+    // FASE 7: warga masuk ke bangunan (rumah/kost/warung/klinik dst).
+    // Saat sampai di pintu, sprite mengecil lalu hilang; beberapa detik
+    // kemudian muncul lagi di pintu yang sama dan memilih tujuan baru.
+    private bool masukKeBangunan;
+    private bool sedangMasuk;
+    private float waktuMasuk;
+    private bool sedangDiDalam;
+    private float sisaDiDalam;
+    private Vector3 skalaAwal;
+    private Renderer badan3D;
+    private Renderer kepala3D;
+
+    private const float DurasiMasukDetik = 0.35f;
+    private const float PeluangMasukBangunan = 0.45f;
 
     private void Awake()
     {
@@ -68,6 +82,7 @@ public class PejalanKaki : MonoBehaviour
         // Warga lebih kecil dari bangunan (sprite 256px @ PPU 100 = 2,56
         // unit — sama tinggi rumah 1 lantai). Skala 0,42 -> ±1 unit.
         transform.localScale = new Vector3(0.42f, 0.42f, 1f);
+        skalaAwal = transform.localScale;
         transform.position = posisiAwal;
         if (grid != null && grid.mode3D)
         {
@@ -93,6 +108,7 @@ public class PejalanKaki : MonoBehaviour
         badan.transform.localScale = new Vector3(0.24f, 0.22f, 0.24f);
         Renderer rb = badan.GetComponent<Renderer>();
         if (rb != null) rb.sharedMaterial = Model3DBangunan.Mat(hex);
+        badan3D = rb;
 
         GameObject kepala = GameObject.CreatePrimitive(PrimitiveType.Sphere);
         kepala.name = "Kepala3D";
@@ -101,10 +117,16 @@ public class PejalanKaki : MonoBehaviour
         kepala.transform.localScale = new Vector3(0.22f, 0.22f, 0.22f);
         Renderer rk = kepala.GetComponent<Renderer>();
         if (rk != null) rk.sharedMaterial = Model3DBangunan.Mat("#FBD38D");
+        kepala3D = rk;
     }
 
     private void Update()
     {
+        if (sedangDiDalam || sedangMasuk)
+        {
+            PerbaruiMasukKeluar();
+            return;
+        }
         if (!punyaTarget || grid == null || gridManager == null)
         {
             return;
@@ -145,6 +167,12 @@ public class PejalanKaki : MonoBehaviour
             else
             {
                 punyaTarget = false;
+                if (masukKeBangunan)
+                {
+                    masukKeBangunan = false;
+                    MulaiMasukBangunan();
+                    return;
+                }
                 sisaIstirahat = (float)(GameBalance.IstirahatWargaMinDetik
                     + acak.NextDouble() * (GameBalance.IstirahatWargaMaksDetik
                         - GameBalance.IstirahatWargaMinDetik));
@@ -192,6 +220,11 @@ public class PejalanKaki : MonoBehaviour
     {
         jalurAktif = null;
         indeksJalur = 0;
+        masukKeBangunan = false;
+        if (CobaTujuBangunan())
+        {
+            return;
+        }
 
         // Jika ada jaringan Jalan, prioritaskan berjalan mengikuti Jalan.
         if (buildManager != null)
@@ -247,6 +280,97 @@ public class PejalanKaki : MonoBehaviour
         target = grid.mode3D ? new Vector2(dunia.x, dunia.z) : new Vector2(dunia.x, dunia.y);
         punyaTarget = true;
         sisaIstirahat = 0f;
+    }
+
+    // Warga kadang memilih sebuah bangunan (rumah, kost, warung, klinik
+    // — apa saja yang ada) sebagai tujuan, lalu masuk ke pintunya.
+    private bool CobaTujuBangunan()
+    {
+        if (buildManager == null || acak.NextDouble() >= PeluangMasukBangunan)
+        {
+            return false;
+        }
+        List<BangunanTerpasang> daftar = new List<BangunanTerpasang>();
+        foreach (BangunanTerpasang b in buildManager.DaftarTerpasang)
+        {
+            if (b != null && b.Data != null && b.Data.id != "jalan")
+            {
+                daftar.Add(b);
+            }
+        }
+        if (daftar.Count == 0)
+        {
+            return false;
+        }
+        BangunanTerpasang pilih = daftar[acak.Next(0, daftar.Count)];
+        Vector3 dunia = grid.GridKeDunia(pilih.PosisiGrid);
+        target = grid.mode3D
+            ? new Vector2(dunia.x, dunia.z)
+            : new Vector2(dunia.x, dunia.y);
+        punyaTarget = true;
+        sisaIstirahat = 0f;
+        masukKeBangunan = true;
+        return true;
+    }
+
+    private void MulaiMasukBangunan()
+    {
+        waktuMasuk = 0f;
+        sedangMasuk = true;
+        sisaIstirahat = 0f;
+    }
+
+    // Animasi masuk (mengecil lalu hilang) dan keluar (muncul lagi di
+    // pintu yang sama). Timer tetap berjalan karena GameObject aktif;
+    // hanya renderer yang dimatikan saat di dalam.
+    private void PerbaruiMasukKeluar()
+    {
+        if (sedangMasuk)
+        {
+            waktuMasuk += Time.deltaTime;
+            float t = Mathf.Clamp01(waktuMasuk / DurasiMasukDetik);
+            transform.localScale = skalaAwal * Mathf.Lerp(1f, 0.05f, t);
+            if (t >= 1f)
+            {
+                sedangMasuk = false;
+                sedangDiDalam = true;
+                AturTampil(false);
+                sisaDiDalam = GameBalance.IstirahatWargaMinDetik
+                    + (float)acak.NextDouble() * 6f;
+            }
+            return;
+        }
+        sisaDiDalam -= Time.deltaTime;
+        if (sisaDiDalam > 0f)
+        {
+            return;
+        }
+        sedangDiDalam = false;
+        transform.localScale = skalaAwal;
+        AturTampil(true);
+        waktuJalan = 0f;
+        if (spriteDiam != null)
+        {
+            spriteRenderer.sprite = spriteDiam;
+        }
+        PilihTargetBaru();
+    }
+
+    private void AturTampil(bool tampil)
+    {
+        bool mode3d = grid != null && grid.mode3D;
+        if (spriteRenderer != null)
+        {
+            spriteRenderer.enabled = tampil && !mode3d;
+        }
+        if (badan3D != null)
+        {
+            badan3D.enabled = tampil;
+        }
+        if (kepala3D != null)
+        {
+            kepala3D.enabled = tampil;
+        }
     }
 
     // Petak kosong acak; bila setelah 20 kali coba tidak ketemu

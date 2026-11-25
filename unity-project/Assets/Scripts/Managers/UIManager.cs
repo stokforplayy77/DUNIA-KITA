@@ -385,9 +385,16 @@ public class UIManager : MonoBehaviour
             bool terbuka = ProgresiDunia.ApakahTerbuka(data.levelBuka, levelDunia);
             bool sudahBalaiKota = data.id == "balaikota" && buildManager != null
                 && buildManager.HitungBangunan("balaikota") >= 1;
+            // FASE 7 (tycoon): fasilitas umum diurus Kota/NPC.
+            bool milikKota = data.kategori == KategoriBangunan.Fasilitas;
             string label;
             string warna;
-            if (sudahBalaiKota)
+            if (milikKota)
+            {
+                label = data.nama + " - Milik Kota (NPC)";
+                warna = "#6B6B6B";
+            }
+            else if (sudahBalaiKota)
             {
                 label = data.nama + " - Sudah dibangun";
                 warna = "#8A8A8A";
@@ -406,6 +413,11 @@ public class UIManager : MonoBehaviour
                 "Tombol_" + data.id, label, warna, "#FFFFFF",
                 delegate
                 {
+                    if (milikKota)
+                    {
+                        TampilkanPesan(salinan.nama + " milik Kota dan diurus warga NPC.");
+                        return;
+                    }
                     if (sudahBalaiKota)
                     {
                         TampilkanPesan("Balai Kota sudah dibangun — hanya 1 per dunia.");

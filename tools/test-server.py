@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
-"""Tes end-to-end server Dunia Bersama (Fase 7) — HTTP nyata.
+"""Tes end-to-end server Dunia Bersama — HTTP nyata.
 
 Menjalankan server.py di localhost (port bebas + DB sementara),
-lalu menguji alur lengkap lewat HTTP sungguhan:
-  daftar 2 pemain -> masuk -> ajukan izin -> bayar -> bangun di
-  tanah sendiri -> bangun di tanah orang lain (DITOLAK) -> bangun
-  tanpa koin (DITOLAK) -> syarat jalan (DITOLAK sampai ada Jalan)
-  -> dunia terlihat sama oleh pemain kedua -> kas kota bertambah
-  -> pemasukan offline (2 hari + batas 24 hari) -> jual bangunan
-  -> batas laju 60/menit.
-Ditambah cek langsung logika wali kota di db.py (cabang Bersyarat
-dan Ditolak yang butuh reputasi rendah — tidak bisa dicapai lewat
-API karena reputasi belum berubah di v1).
+lalu menguji alur lengkap lewat HTTP sungguhan dengan aturan TYCOON
+MULTIPEMAIN (diputuskan 25 Nov 2026):
+  daftar 2 pemain -> masuk -> fasilitas umum DITOLAK untuk pemain
+  -> izin + bangun kost & warung -> warga NPC menyewa kamar dan
+  berbelanja (sewa & penjualan masuk ke koin pemilik) -> dunia sama
+  untuk kedua pemain -> pemasukan offline 2 hari + batas 24 hari
+  -> jual bangunan -> sinkron (koin tidak pernah turun dari sinkron)
+  -> impor tanah -> cabang wali kota -> batas laju 60/menit.
 
 Jalankan:  python3 tools/test-server.py
 Keluar kode 0 bila semua pemeriksaan lolos.
@@ -31,6 +29,11 @@ import urllib.request
 DIR = os.path.dirname(os.path.abspath(__file__))
 SERVER = os.path.join(DIR, "..", "server")
 sys.path.insert(0, SERVER)
+
+import db as dbmod  # noqa: E402 — dipakai untuk konstanta & cabang langsung
+
+U = dbmod.UKURAN_PETA
+HARI = dbmod.DURASI_HARI_DETIK
 
 LOLOS = 0
 GAGAL = 0
@@ -69,14 +72,21 @@ def variasi(nama, x, y):
 
 
 def cari_petak(nama, variasi_min, variasi_maks, hindari=()):
-    for x in range(24):
-        for y in range(24):
+    for x in range(U):
+        for y in range(U):
             if (x, y) in hindari:
                 continue
+            if 14 <= x <= 22 and 17 <= y <= 21:
+                continue  # kawasan fasilitas & jalan Kota
             v = variasi(nama, x, y)
             if variasi_min <= v <= variasi_maks:
                 return x, y, v
     return None
+
+
+def koin_di(base, token):
+    kode, jawab = req(base, "GET", "/api/dunia", token=token)
+    return jawab.get("profil", {}).get("koin"), jawab
 
 
 def main():
@@ -132,174 +142,227 @@ def main():
                 "masuk Raka benar, pemasukan offline 0 (baru daftar)")
         token_raka = jawab.get("token")
 
-        # ---- Auth + dunia kosong ----
+        # ---- Auth + dunia kota ----
         kode, jawab = req(base, "GET", "/api/dunia")
         periksa(kode == 401, "dunia tanpa token -> 401")
         kode, jawab = req(base, "GET", "/api/dunia", token=token_raka)
-        periksa(kode == 200 and jawab.get("ukuran") == 24,
-                "dunia ukuran 24x24")
-        periksa(jawab.get("bangunan") == [] and jawab.get("tanah") == [],
-                "dunia awal kosong")
+        periksa(kode == 200 and jawab.get("ukuran") == U,
+                "dunia ukuran %dx%d" % (U, U))
+        bang = {(b["x"], b["y"]): b for b in jawab.get("bangunan", [])}
+        periksa(bang.get((18, 18), {}).get("id") == "balaikota"
+                and bang.get((18, 18), {}).get("pemilik") == "Kota",
+                "Balai Kota milik Kota ada di (18,18)")
+        milik_pemain = [b for b in jawab.get("bangunan", [])
+                        if b.get("pemilik") not in (None, "Kota")]
+        periksa(milik_pemain == [], "belum ada bangunan milik pemain")
+        periksa(jawab.get("warga", {}).get("jumlah") == dbmod.WARGA_PER_DISTRIK,
+                "tiap distrik punya %d warga NPC" % dbmod.WARGA_PER_DISTRIK)
+
+        # ---- Fasilitas umum milik Kota: pemain DITOLAK ----
         kode, jawab = req(base, "POST", "/api/ajukan-izin", token=token_raka,
-                          badan={"x": 24, "y": 0, "bangunan": "rumah"})
+                          badan={"x": U, "y": 0, "bangunan": "rumah"})
         periksa(kode == 400, "izin di luar peta ditolak")
         kode, jawab = req(base, "POST", "/api/ajukan-izin", token=token_raka,
                           badan={"x": 5, "y": 5, "bangunan": "tidak_ada"})
         periksa(kode == 400, "izin bangunan tak dikenal ditolak")
-
-        # ---- Alur izin + bangun (Raka, pusat) ----
         kode, jawab = req(base, "POST", "/api/ajukan-izin", token=token_raka,
-                          badan={"x": 11, "y": 11, "bangunan": "rumah"})
-        periksa(kode == 200, "ajukan izin rumah di pusat -> 200")
+                          badan={"x": 24, "y": 24, "bangunan": "sekolah"})
+        periksa(kode == 400 and "Kota" in jawab.get("kesalahan", ""),
+                "izin sekolah DITOLAK (fasilitas Kota)")
+        kode, jawab = req(base, "POST", "/api/bangun", token=token_raka,
+                          badan={"x": 24, "y": 24, "bangunan": "klinik"})
+        periksa(kode == 400 and "Kota" in jawab.get("kesalahan", ""),
+                "bangun klinik DITOLAK (fasilitas Kota)")
+
+        # ---- Raka: kost di (10,10) ----
+        kode, jawab = req(base, "POST", "/api/ajukan-izin", token=token_raka,
+                          badan={"x": 10, "y": 10, "bangunan": "kost"})
+        periksa(kode == 200, "ajukan izin kost di (10,10) -> 200")
         kep = jawab.get("keputusan", {})
+        harga = dbmod.DuniaDB.harga_tanah(10, 10)
+        biaya = harga * dbmod.BIAYA_IZIN_PERMIL // 1000
+        biaya = biaya * (1000 + dbmod.KENAIKAN_KAS_PERMIL) // 1000
+        biaya = biaya * (1000 - dbmod.DISKON_BALAIKOTA_PERMIL) // 1000
         periksa(kep.get("hasil") == "Disetujui",
-                "izin rumah pusat disetujui (skor tinggi)")
-        periksa(kep.get("harga_tanah") == 1400000,
-                "harga tanah pusat Rp1.400.000 (dapat %s)"
-                % kep.get("harga_tanah"))
-        # Kas kota awal 0 (< Rp1jt, "menipis") -> biaya izin +50%:
-        # 10% x 1,5 = Rp210.000.
-        periksa(kep.get("biaya_izin") == 210000,
-                "biaya izin pusat 10%% +50%% kas menipis = Rp210.000 (dapat %s)"
-                % kep.get("biaya_izin"))
+                "izin kost (10,10) disetujui (dapat %s)" % kep.get("hasil"))
+        periksa(kep.get("harga_tanah") == harga,
+                "harga tanah (10,10) Rp%d (dapat %s)"
+                % (harga, kep.get("harga_tanah")))
+        periksa(kep.get("biaya_izin") == biaya,
+                "biaya izin (10,10) Rp%d +50%% kas menipis (dapat %s)"
+                % (biaya, kep.get("biaya_izin")))
+        total_kost = kep.get("total", 0)
         izin_id = jawab.get("izin_id")
-        total_pusat = kep.get("total", 0)
         kode, jawab = req(base, "POST", "/api/bayar-izin", token=token_raka,
                           badan={"izin_id": izin_id})
-        periksa(kode == 200 and jawab.get("koin") == 5000000 - total_pusat,
-                "bayar izin pusat: koin 5.000.000 - %d" % total_pusat)
+        periksa(kode == 200 and jawab.get("koin") == 5000000 - total_kost,
+                "bayar izin kost: koin 5.000.000 - %d" % total_kost)
         kode, jawab = req(base, "POST", "/api/bayar-izin", token=token_raka,
                           badan={"izin_id": izin_id})
         periksa(kode == 400, "bayar izin yang sama 2x ditolak")
+        # Kost 2x2: beli juga 3 petak lain supaya seluruh tapak milik Raka.
+        koin_sekarang = 5000000 - total_kost
+        total_izin_kost = total_kost
+        for px, py in ((11, 10), (10, 11), (11, 11)):
+            kode, jawab = req(base, "POST", "/api/ajukan-izin",
+                              token=token_raka,
+                              badan={"x": px, "y": py, "bangunan": "kost"})
+            periksa(kode == 200 and jawab.get("keputusan", {}).get("hasil")
+                    == "Disetujui", "izin petak kost (%d,%d)" % (px, py))
+            total_izin_kost += jawab.get("keputusan", {}).get("total", 0)
+            kode, jawab = req(base, "POST", "/api/bayar-izin",
+                              token=token_raka,
+                              badan={"izin_id": jawab.get("izin_id")})
+            periksa(kode == 200, "bayar izin petak kost (%d,%d)" % (px, py))
+            koin_sekarang = jawab.get("koin", koin_sekarang)
+        kode, jawab = req(base, "POST", "/api/bangun", token=token_raka,
+                          badan={"x": 10, "y": 10, "bangunan": "kost"})
+        biaya_kost = dbmod.BANGUNAN["kost"][0]
+        periksa(kode == 200 and jawab.get("koin") == koin_sekarang - biaya_kost,
+                "bangun kost (koin -Rp%d, dapat %s)"
+                % (biaya_kost, jawab.get("kesalahan")))
+        koin_setelah_kost = koin_sekarang - biaya_kost
+        kode, jawab = req(base, "POST", "/api/bangun", token=token_raka,
+                          badan={"x": 10, "y": 10, "bangunan": "kost"})
+        periksa(kode == 400, "bangun di petak sudah terisi ditolak")
         kode, jawab = req(base, "POST", "/api/ajukan-izin", token=token_sinta,
-                          badan={"x": 11, "y": 11, "bangunan": "rumah"})
+                          badan={"x": 10, "y": 10, "bangunan": "warung"})
         periksa(kode == 400, "Sinta ajukan izin petak milik Raka ditolak")
         kode, jawab = req(base, "POST", "/api/bangun", token=token_sinta,
-                          badan={"x": 11, "y": 11, "bangunan": "rumah"})
+                          badan={"x": 10, "y": 10, "bangunan": "warung"})
         periksa(kode == 400, "Sinta bangun di tanah Raka DITOLAK")
-        kode, jawab = req(base, "POST", "/api/bangun", token=token_raka,
-                          badan={"x": 11, "y": 11, "bangunan": "rumah"})
-        periksa(kode == 200 and jawab.get("koin") == 5000000 - total_pusat - 500000,
-                "Raka bangun rumah di tanah sendiri (koin -Rp500.000)")
-        kode, jawab = req(base, "POST", "/api/bangun", token=token_raka,
-                          badan={"x": 11, "y": 11, "bangunan": "rumah"})
-        periksa(kode == 400, "bangun di petak sudah terisi ditolak")
 
-        # ---- Tanah pinggir untuk warung (izin kampus, bangun warung) ----
-        # (0,1): jarak Chebyshev 11 dari pusat -> Rp300.000. Kas kota
-        # kini Rp1.610.000 (> Rp1jt) jadi biaya izin normal 10%.
-        kode, jawab = req(base, "POST", "/api/ajukan-izin", token=token_raka,
-                          badan={"x": 0, "y": 1, "bangunan": "kampus"})
-        periksa(kode == 200, "ajukan izin kampus di pinggir -> 200")
-        kep2 = jawab.get("keputusan", {})
-        periksa(kep2.get("harga_tanah") == 300000,
-                "harga tanah (0,1) Rp300.000 (dapat %s)"
-                % kep2.get("harga_tanah"))
-        periksa(kep2.get("biaya_izin") == 30000,
-                "biaya izin (0,1) 10%% = Rp30.000 (dapat %s)"
-                % kep2.get("biaya_izin"))
-        kode, jawab = req(base, "POST", "/api/bayar-izin", token=token_raka,
+        # ---- Sinta: warung di (13,13) ----
+        kode, jawab = req(base, "POST", "/api/ajukan-izin", token=token_sinta,
+                          badan={"x": 13, "y": 13, "bangunan": "warung"})
+        periksa(kode == 200, "ajukan izin warung (13,13) -> 200")
+        kep_warung = jawab.get("keputusan", {})
+        total_warung = kep_warung.get("total", 0)
+        kode, jawab = req(base, "POST", "/api/bayar-izin", token=token_sinta,
                           badan={"izin_id": jawab.get("izin_id")})
-        periksa(kode == 200, "bayar izin kampus (tanah pinggir)")
-        total_kampus = kep2.get("total", 0)
+        periksa(kode == 200, "bayar izin warung")
+        kode, jawab = req(base, "POST", "/api/bangun", token=token_sinta,
+                          badan={"x": 13, "y": 13, "bangunan": "warung"})
+        biaya_warung = dbmod.BANGUNAN["warung"][0]
+        koin_sinta = 5000000 - total_warung - biaya_warung
+        periksa(kode == 200 and jawab.get("koin") == koin_sinta,
+                "Sinta bangun warung (koin Rp%d)" % koin_sinta)
 
-        # ---- Warung untuk pemasukan offline ----
-        kode, jawab = req(base, "POST", "/api/bangun", token=token_raka,
-                          badan={"x": 0, "y": 1, "bangunan": "warung"})
-        periksa(kode == 200, "Raka bangun warung di (0,1)")
-
-        # ---- Koin tidak cukup (kafe Rp2jt di tanah sendiri) ----
-        # Raka: 5.000.000 - 1.610.000 (pusat) - 500.000 (rumah)
-        # - 330.000 (tanah kampus) - 750.000 (warung) = Rp1.810.000.
-        kode, jawab = req(base, "POST", "/api/ajukan-izin", token=token_raka,
-                          badan={"x": 0, "y": 2, "bangunan": "kafe"})
-        periksa(kode == 200, "ajukan izin kafe di (0,2) -> 200")
-        kep_kafe = jawab.get("keputusan", {})
-        total_kafe = kep_kafe.get("total", 0)
-        kode, jawab = req(base, "POST", "/api/bayar-izin", token=token_raka,
-                          badan={"izin_id": jawab.get("izin_id")})
-        periksa(kode == 200, "bayar izin kafe (tanah pinggir)")
-        kode, jawab = req(base, "POST", "/api/bangun", token=token_raka,
-                          badan={"x": 0, "y": 2, "bangunan": "kafe"})
-        periksa(kode == 400 and "Koin tidak cukup" in jawab.get("kesalahan", ""),
-                "bangun kafe Rp2jt dengan koin ~Rp1.480.000 DITOLAK")
-
-        # ---- Dunia terlihat sama oleh pemain kedua + kas kota ----
+        # ---- Dunia sama untuk kedua pemain ----
         kode, jawab = req(base, "GET", "/api/dunia", token=token_sinta)
         bang = {(b["x"], b["y"]): b for b in jawab.get("bangunan", [])}
-        periksa(bang.get((11, 11), {}).get("id") == "rumah"
-                and bang.get((11, 11), {}).get("pemilik") == "Raka",
-                "Sinta melihat rumah Raka di (11,11)")
-        periksa(bang.get((0, 1), {}).get("id") == "warung",
-                "Sinta melihat warung Raka di (0,1)")
+        periksa(bang.get((10, 10), {}).get("id") == "kost"
+                and bang.get((10, 10), {}).get("pemilik") == "Raka",
+                "Sinta melihat kost Raka di (10,10)")
         tanah = {(t["x"], t["y"]): t["pemilik"]
                  for t in jawab.get("tanah", [])}
-        periksa(tanah.get((11, 11)) == "Raka"
-                and tanah.get((0, 1)) == "Raka",
-                "tanah Raka terlihat di dunia Sinta")
+        periksa(tanah.get((13, 13)) == "Sinta"
+                and tanah.get((10, 10)) == "Raka",
+                "tanah kedua pemain terlihat di dunia bersama")
+
+        # ---- Warga menyewa kamar & berbelanja (2 hari game) ----
+        kon = sqlite3.connect(db_path, timeout=30)
+        now = int(time.time())
+        kon.execute("UPDATE simulasi SET hari_terakhir = ? WHERE distrik_id = 1",
+                    (now // HARI - 2,))
+        kon.commit()
+        koin_raka, jawab = koin_di(base, token_raka)
+        periksa(jawab.get("warga", {}).get("penyewa") == 8,
+                "8 warga menyewa kamar kost Raka (dapat %s)"
+                % jawab.get("warga", {}).get("penyewa"))
+        sewa_harian = 8 * dbmod.SEWA_PER_KAMAR["kost"]
+        jual_harian = 8 * dbmod.BELANJA_WARGA["warung"][1]
+        bersih_raka = (sewa_harian - dbmod.BANGUNAN["kost"][2]
+                       - (sewa_harian * dbmod.PAJAK_PERMIL // 1000)) * 2
+        koin_raka_harap = koin_setelah_kost + bersih_raka
+        periksa(koin_raka == koin_raka_harap,
+                "koin Raka sesudah 2 hari = %d (dapat %s)"
+                % (koin_raka_harap, koin_raka))
+        koin_sinta_harap = (5000000 - total_warung - biaya_warung
+                            + (jual_harian - dbmod.BANGUNAN["warung"][2]
+                               - (jual_harian * dbmod.PAJAK_PERMIL // 1000)) * 2)
+        koin_sinta_nyata, _ = koin_di(base, token_sinta)
+        periksa(koin_sinta_nyata == koin_sinta_harap,
+                "koin Sinta sesudah 2 hari = %d (dapat %s)"
+                % (koin_sinta_harap, koin_sinta_nyata))
+        kode, jawab = req(base, "GET", "/api/warga", token=token_sinta)
+        daftar = jawab.get("warga", [])
+        periksa(kode == 200 and len(daftar) == dbmod.WARGA_PER_DISTRIK,
+                "daftar warga %d orang (dapat %d)"
+                % (dbmod.WARGA_PER_DISTRIK, len(daftar)))
+        penyewa = [w for w in daftar if w.get("hunian_x") == 10]
+        tamu = [w for w in daftar if w.get("toko_x") == 13]
+        periksa(len(penyewa) == 8 and len(tamu) == 8,
+                "warga terlihat: 8 penyewa kost, 8 tamu warung "
+                "(dapat %d & %d)" % (len(penyewa), len(tamu)))
+        periksa(all(w.get("pemilik") == "Raka" for w in penyewa),
+                "penyewa kost tercatat atas nama Raka")
         kode, jawab = req(base, "GET", "/api/kas-kota", token=token_raka)
-        # Kas kota = total izin pusat + total izin kampus + total izin kafe.
-        periksa(jawab.get("saldo") == total_pusat + total_kampus + total_kafe,
-                "kas kota = %d (dapat %s)"
-                % (total_pusat + total_kampus + total_kafe,
-                   jawab.get("saldo")))
-        periksa(len(jawab.get("riwayat", [])) == 3,
-                "riwayat kas kota 3 entri")
+        pajak_2hari = 2 * ((sewa_harian + jual_harian)
+                           * dbmod.PAJAK_PERMIL // 1000)
+        periksa(jawab.get("saldo") == total_izin_kost + total_warung
+                + pajak_2hari,
+                "kas kota = izin + pajak warga (dapat %s, harap %d)"
+                % (jawab.get("saldo"), total_kost + total_warung + pajak_2hari))
 
         # ---- Pemasukan offline (2 hari, lalu batas 24 hari) ----
-        kon = sqlite3.connect(db_path)
-        now = int(time.time())
-        # Mundurkan terakhir_masuk Raka 2 hari game + 10 detik.
         kon.execute("UPDATE pemain SET terakhir_masuk = ? WHERE nama = 'Raka'",
-                    (now - 2 * 300 - 10,))
+                    (now - 2 * HARI - 10,))
+        kon.execute("UPDATE simulasi SET hari_terakhir = ? WHERE distrik_id = 1",
+                    (now // HARI - 2,))
+        kon.execute("DELETE FROM pendapatan_warga WHERE pemain_id ="
+                    " (SELECT id FROM pemain WHERE nama = 'Raka')")
         kon.commit()
         kode, jawab = req(base, "POST", "/api/masuk",
                           badan={"nama": "Raka", "sandi": "sandi123"})
-        # Raka: rumah (0 - 1000) + warung (15000 - 2000) per hari.
-        # kotor 2 hari = 30000, pajak 750, upkeep 6000, bersih 23250.
+        harian_raka = (sewa_harian - dbmod.BANGUNAN["kost"][2]
+                       - (sewa_harian * dbmod.PAJAK_PERMIL // 1000))
         periksa(jawab.get("hari_offline") == 2, "hari offline = 2")
-        periksa(jawab.get("pemasukan_offline") == 23250,
-                "pemasukan offline 2 hari = Rp23.250 (dapat %s)"
-                % jawab.get("pemasukan_offline"))
+        periksa(jawab.get("pemasukan_offline") == harian_raka * 2,
+                "pemasukan offline 2 hari = Rp%d (dapat %s)"
+                % (harian_raka * 2, jawab.get("pemasukan_offline")))
         token_raka = jawab.get("token")
+        koin_raka, _ = koin_di(base, token_raka)
+        periksa(koin_raka == koin_raka_harap + harian_raka * 2,
+                "koin Raka bertambah pajak-bersih 2 hari (dapat %s)" % koin_raka)
         kon.execute("UPDATE pemain SET terakhir_masuk = ? WHERE nama = 'Raka'",
                     (now - 30 * 24 * 3600,))
+        kon.execute("UPDATE simulasi SET hari_terakhir = ? WHERE distrik_id = 1",
+                    (now // HARI - 30,))
         kon.commit()
         kode, jawab = req(base, "POST", "/api/masuk",
                           badan={"nama": "Raka", "sandi": "sandi123"})
-        periksa(jawab.get("hari_offline") == 24,
-                "hari offline dibatasi 24 (dapat %s)"
-                % jawab.get("hari_offline"))
+        periksa(jawab.get("hari_offline") == dbmod.MAKS_HARI_OFFLINE,
+                "hari offline dibatasi %d (dapat %s)"
+                % (dbmod.MAKS_HARI_OFFLINE, jawab.get("hari_offline")))
         token_raka = jawab.get("token")
         kon.close()
 
         # ---- Jual: kembali 50%, tanah tetap milik ----
-        kode, jawab = req(base, "POST", "/api/jual", token=token_raka,
-                          badan={"x": 0, "y": 1})
-        periksa(kode == 200 and jawab.get("harga_jual") == 375000,
-                "jual warung kembali 50%% = Rp375.000")
-        kode, jawab = req(base, "GET", "/api/dunia", token=token_raka)
+        kode, jawab = req(base, "POST", "/api/jual", token=token_sinta,
+                          badan={"x": 13, "y": 13})
+        periksa(kode == 200 and jawab.get("harga_jual") == biaya_warung // 2,
+                "jual warung kembali 50%% = Rp%d" % (biaya_warung // 2))
+        kode, jawab = req(base, "GET", "/api/dunia", token=token_sinta)
         bang = {(b["x"], b["y"]): b for b in jawab.get("bangunan", [])}
-        periksa((0, 1) not in bang, "warung hilang dari dunia sesudah jual")
+        periksa((13, 13) not in bang, "warung hilang dari dunia sesudah jual")
         tanah = {(t["x"], t["y"]): t["pemilik"]
                  for t in jawab.get("tanah", [])}
-        periksa(tanah.get((0, 1)) == "Raka",
-                "tanah (0,1) tetap milik Raka sesudah jual")
+        periksa(tanah.get((13, 13)) == "Sinta",
+                "tanah (13,13) tetap milik Sinta sesudah jual")
         kode, jawab = req(base, "POST", "/api/jual", token=token_raka,
-                          badan={"x": 0, "y": 1})
+                          badan={"x": 13, "y": 13})
         periksa(kode == 400, "jual petak tanpa bangunan ditolak")
         kode, jawab = req(base, "POST", "/api/jual", token=token_sinta,
-                          badan={"x": 11, "y": 11})
-        periksa(kode == 400, "Sinta jual rumah Raka DITOLAK")
+                          badan={"x": 10, "y": 10})
+        periksa(kode == 400, "Sinta jual kost Raka DITOLAK")
 
-        # ---- Sinkron sesi (koin/reputasi klien, terbatas) ----
-        # Koin Raka saat ini: 5.000.000 - 1.610.000 - 500.000
-        # - 330.000 - 750.000 - 330.000 + 23.250 (offline 2 hari)
-        # + 279.000 (offline 24 hari) + 375.000 (jual) = Rp2.157.250.
+        # ---- Sinkron: koin tidak pernah turun dari sinkron ----
+        koin_raka, _ = koin_di(base, token_raka)
         kode, jawab = req(base, "POST", "/api/sinkron", token=token_raka,
-                          badan={"koin": 2157250, "reputasi": 52})
-        periksa(kode == 200 and jawab.get("koin") == 2157250,
-                "sinkron koin Rp2.157.250 + reputasi 52 diterima")
+                          badan={"koin": 100, "reputasi": 52})
+        periksa(kode == 200 and jawab.get("koin") == koin_raka,
+                "sinkron koin lebih rendah tidak menghapus pendapatan warga")
         kode, jawab = req(base, "GET", "/api/pemain", token=token_raka)
         periksa(jawab.get("pemain", {}).get("reputasi") == 52,
                 "reputasi 52 tersimpan lewat sinkron")
@@ -309,14 +372,12 @@ def main():
                 "sinkron +Rp98jt DITOLAK (melebihi batas Rp6jt)")
         kode, jawab = req(base, "POST", "/api/sinkron", token=token_raka,
                           badan={"koin": -100, "reputasi": 52})
-        periksa(kode == 400,
-                "sinkron koin negatif DITOLAK")
+        periksa(kode == 400, "sinkron koin negatif DITOLAK")
         kode, jawab = req(base, "POST", "/api/sinkron", token=token_raka,
-                          badan={"koin": 2157250, "reputasi": 150})
-        periksa(kode == 400,
-                "sinkron reputasi 150 DITOLAK")
+                          badan={"koin": koin_raka, "reputasi": 150})
+        periksa(kode == 400, "sinkron reputasi 150 DITOLAK")
         kode, jawab = req(base, "POST", "/api/sinkron",
-                          badan={"koin": 2157250, "reputasi": 52})
+                          badan={"koin": koin_raka, "reputasi": 52})
         periksa(kode == 401, "sinkron tanpa token -> 401")
 
         # ---- Impor tanah single player (sekali, tanpa bayar) ----
@@ -329,7 +390,7 @@ def main():
                                               {"x": 1, "y": 0, "id": "warung"}]})
         periksa(kode == 200 and jawab.get("diimpor") == 2
                 and jawab.get("dilewati") == 0,
-                "impor 2 bangunan Budi (diimpor %s, dilewati %s)"
+                "impor 2 usaha Budi (diimpor %s, dilewati %s)"
                 % (jawab.get("diimpor"), jawab.get("dilewati")))
         kode, jawab = req(base, "GET", "/api/dunia", token=token_budi)
         bang = {(b["x"], b["y"]): b for b in jawab.get("bangunan", [])}
@@ -339,26 +400,25 @@ def main():
         periksa(bang.get((1, 0), {}).get("id") == "warung",
                 "warung Budi (1,0) terlihat di dunia")
         kode, jawab = req(base, "POST", "/api/impor-tanah", token=token_budi,
-                          badan={"bangunan": [{"x": 5, "y": 5, "id": "taman"}]})
-        periksa(kode == 400,
-                "impor kedua Budi DITOLAK (hanya sekali)")
+                          badan={"bangunan": [{"x": 5, "y": 5, "id": "warung"}]})
+        periksa(kode == 400, "impor kedua Budi DITOLAK (hanya sekali)")
         kode, jawab = req(base, "POST", "/api/daftar",
                           badan={"nama": "Citra", "sandi": "citra1234"})
         token_citra = jawab.get("token")
         kode, jawab = req(base, "POST", "/api/impor-tanah", token=token_citra,
-                          badan={"bangunan": [{"x": 0, "y": 0, "id": "taman"},
+                          badan={"bangunan": [{"x": 0, "y": 0, "id": "kafe"},
                                               {"x": 5, "y": 5, "id": "tidak_ada"},
                                               {"x": 6, "y": 6, "id": "taman"}]})
-        periksa(kode == 200 and jawab.get("diimpor") == 1
-                and jawab.get("dilewati") == 2,
-                "impor Citra: 1 masuk, 2 dilewati (bentrok + id salah)")
+        periksa(kode == 200 and jawab.get("diimpor") == 0
+                and jawab.get("dilewati") == 3,
+                "impor Citra: 0 masuk, 3 dilewati (bentrok, id salah, taman Kota)")
         kode, jawab = req(base, "POST", "/api/impor-tanah",
-                          badan={"bangunan": [{"x": 7, "y": 7, "id": "taman"}]})
+                          badan={"bangunan": [{"x": 7, "y": 7, "id": "warung"}]})
         periksa(kode == 401, "impor tanpa token -> 401")
 
         # ---- Cabang wali kota di db.py (reputasi rendah, langsung) ----
-        import db as dbmod
-        db = dbmod.DuniaDB(db_path)
+        import db as dbmod2
+        db = dbmod2.DuniaDB(db_path)
         pemain_uji, _ = db.daftar("Uji", "uji1234")
         baris = db.koneksi.execute(
             "SELECT * FROM pemain WHERE nama = 'Uji'").fetchone()
@@ -378,9 +438,8 @@ def main():
         pemain["reputasi"] = 20
         petak = cari_petak("Uji", -5, -1,
                            hindari={(0, 0), (1, 0), (6, 6),
-                                    (11, 11), (0, 1), (0, 2),
-                                    (20, 20), (21, 20), (20, 21),
-                                    (21, 21), (22, 22)})
+                                    (10, 10), (11, 10), (10, 11), (11, 11),
+                                    (13, 13)})
         periksa(petak is not None, "ditemukan petak variasi negatif untuk Uji")
         if petak:
             x, y, v = petak
@@ -391,47 +450,49 @@ def main():
                     % (v, kep["hasil"]))
             periksa(kep["syarat"] == "jalan_bersebelahan",
                     "syarat Bersyarat warung = jalan bersebelahan")
-            # Bayar izin bersyarat, lalu bangun TANPA jalan -> ditolak.
             hasil, salah = db.ajukan_izin(pemain, x, y, "warung")
             periksa(salah is None and hasil is not None,
                     "ajukan izin Bersyarat tersimpan")
             if hasil:
-                # Ambil ulang profil (koin di dict bisa basi).
                 pemain = dict(db.koneksi.execute(
                     "SELECT * FROM pemain WHERE nama = 'Uji'").fetchone())
                 hasil2, salah2 = db.bayar_izin(pemain, hasil["izin_id"])
                 periksa(salah2 is None, "bayar izin Bersyarat berhasil")
                 hasil3, salah3 = db.bangun(pemain, x, y, "warung")
-                periksa(salah3 is not None
-                        and "Jalan" in (salah3 or ""),
+                periksa(salah3 is not None and "Jalan" in (salah3 or ""),
                         "bangun tanpa Jalan bersebelahan DITOLAK")
-                # Beli tanah sebelah, bangun Jalan, lalu warung boleh.
-                px, py = (x + 1, y) if x + 1 < 24 else (x - 1, y)
+                px, py = (x + 1, y) if x + 1 < U else (x - 1, y)
                 h4, s4 = db.ajukan_izin(pemain, px, py, "jalan")
-                periksa(s4 is None, "ajukan izin Jalan sebelah")
+                periksa(s4 is None, "ajukan izin Jalan sebelah (%s)" % (s4,))
                 if h4 and h4["keputusan"]["hasil"] != "Ditolak":
                     h5, s5 = db.bayar_izin(pemain, h4["izin_id"])
                     periksa(s5 is None, "bayar izin Jalan")
                     h6, s6 = db.bangun(pemain, px, py, "jalan")
-                    periksa(s6 is None, "bangun Jalan di sebelah")
+                    periksa(s6 is None, "bangun Jalan di sebelah (%s)" % (s6,))
                     h7, s7 = db.bangun(pemain, x, y, "warung")
                     periksa(s7 is None,
-                            "warung boleh dibangun sesudah ada Jalan")
+                            "warung boleh dibangun sesudah ada Jalan (%s)"
+                            % (s7,))
         # Kepadatan: 4+ sejenis di kawasan -> Ditolak.
         db.koneksi.execute(
             "UPDATE pemain SET reputasi = 50 WHERE nama = 'Uji'")
         db.koneksi.commit()
         pemain["reputasi"] = 50
-        # Isi kawasan (20..21, 20..21) dengan 4 taman milik Uji.
-        for (ax, ay) in ((20, 20), (21, 20), (20, 21), (21, 21)):
+        for (ax, ay) in ((30, 30), (31, 30), (30, 31), (31, 31)):
             db.koneksi.execute(
-                "INSERT OR REPLACE INTO petak (x, y, pemilik_id,"
-                " bangunan_id, jangkar_x, jangkar_y) VALUES (?, ?, ?, 'taman', ?, ?)",
+                "INSERT OR REPLACE INTO petak (distrik_id, x, y, pemilik_id,"
+                " bangunan_id, jangkar_x, jangkar_y) VALUES"
+                " (1, ?, ?, ?, 'warung', ?, ?)",
                 (ax, ay, pemain["id"], ax, ay))
         db.koneksi.commit()
-        kep = db.putuskan_izin(pemain, 22, 22, "taman")
+        kep = db.putuskan_izin(pemain, 32, 31, "warung")
         periksa(kep["hasil"] == "Ditolak",
-                "4 taman di kawasan -> izin taman ke-5 Ditolak")
+                "4 warung di kawasan -> izin warung ke-5 Ditolak")
+        # Fasilitas Kota juga ditolak lewat db.py langsung.
+        pemain["reputasi"] = 50
+        kep = db.putuskan_izin(pemain, 5, 5, "sekolah")
+        periksa(kep["hasil"] == "Ditolak" and "Kota" in kep.get("alasan", ""),
+                "sekolah Ditolak: fasilitas Kota (alasan wali kota)")
         db.tutup()
 
         # ---- Batas laju: 65 request cepat -> minimal satu 429 ----

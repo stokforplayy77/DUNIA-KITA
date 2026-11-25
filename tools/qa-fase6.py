@@ -8,8 +8,10 @@
 #   B. Aturan kategori: hunian punya kapasitas > 0, komersial punya
 #      pemasukan > 0, semua yang berpenghasilan untung sendiri
 #      (pemasukan > perawatan).
-#   C. Sprite: berkas PNG ada, dimensi kanvas cocok ukuran
-#      (1x1=256x256, 2x2=512x256, 3x3=768x384), GUID sprite di .asset
+#   C. Sprite: berkas PNG ada, dimensi kanvas cocok ukuran pada
+#      PPU 100 (1x1=256x256, 2x2=512x256, 3x3=768x384) atau kelipatannya
+#      sesuai spritePixelsToUnits di .meta (sprite HD: PPU 400 ->
+#      1024x1024 / 2048x1024), GUID sprite di .asset
 #      sama dengan GUID di .meta PNG, .meta terkompresi
 #      (textureType 8, textureFormat -3).
 #   D. Silang dengan GameBalance.cs + README (angka yang didokumentasi):
@@ -169,11 +171,13 @@ for bid, d in sorted(data.items()):
     if not os.path.isfile(path_png):
         continue
     lebar, tinggi = Image.open(path_png).size
-    periksa((lebar, tinggi) == DIMENSI[(d["ux"], d["uy"])],
-            "%s: sprite %dx%d, seharusnya %s untuk ukuran %dx%d"
-            % (bid, lebar, tinggi, DIMENSI[(d["ux"], d["uy"])],
-               d["ux"], d["uy"]))
     meta = baca(path_png + ".meta")
+    ppu = int(re.search(r"spritePixelsToUnits: (\d+)", meta).group(1))
+    acuan = DIMENSI[(d["ux"], d["uy"])]
+    periksa(lebar * 100 == acuan[0] * ppu and tinggi * 100 == acuan[1] * ppu,
+            "%s: sprite %dx%d @PPU %d, seharusnya setara %s @PPU 100 "
+            "untuk ukuran %dx%d"
+            % (bid, lebar, tinggi, ppu, acuan, d["ux"], d["uy"]))
     guid_meta = re.search(r"^guid: ([0-9a-f]+)$", meta, re.M).group(1)
     periksa(guid_meta == d["guid_sprite"],
             bid + ": GUID sprite .asset != .meta PNG")

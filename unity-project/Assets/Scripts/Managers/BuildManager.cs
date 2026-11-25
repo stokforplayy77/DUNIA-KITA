@@ -271,6 +271,15 @@ public class BuildManager : MonoBehaviour
         {
             return false;
         }
+        // FASE 7 (tycoon): fasilitas umum (balai kota, klinik, sekolah,
+        // taman, pos, dll.) milik Kota dan diurus NPC — pemain tidak
+        // membangunnya. Server juga menolak; ini lapisan pertama.
+        if (data.kategori == KategoriBangunan.Fasilitas)
+        {
+            AudioManager.MainkanTolak();
+            uiManager.TampilkanPesan(data.nama + " milik Kota dan diurus warga NPC.");
+            return false;
+        }
         // Balai Kota: hanya 1 per dunia (batas ditegakkan di sini
         // supaya tidak bisa dilewati lewat jalur selain menu bangun).
         if (data.id == SistemBalaiKota.IdBalaiKota

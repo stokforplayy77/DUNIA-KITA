@@ -401,11 +401,30 @@ public partial class ServerManager : MonoBehaviour
     }
 
     // Terapkan state dunia server: cache pemilik + diff bangunan.
+    private CitizenManager cmWarga;
+
     private void TerapkanDunia(ResponDunia dunia)
     {
         if (dunia == null || bm == null)
         {
             return;
+        }
+        // FASE 7 (tycoon): koin datang dari server (sewa & belanja warga),
+        // jadi terapkan saldo server tiap sinkron.
+        if (dunia.profil != null && dunia.profil.id > 0)
+        {
+            CerminkanPemain(dunia.profil);
+        }
+        if (dunia.warga != null)
+        {
+            if (cmWarga == null)
+            {
+                cmWarga = FindObjectOfType<CitizenManager>();
+            }
+            if (cmWarga != null)
+            {
+                cmWarga.AturDariServer(dunia.warga.jumlah, dunia.warga.penyewa);
+            }
         }
         if (dunia.distrik_id > 0)
         {
